@@ -103,4 +103,16 @@ menu "Example Configuration"
             Note: The IP address is in platform (not network)
             format.
 
+    config IS_ROOT
+	bool "Define this node as root"
+	default n
+	help
+	    Use this for fixing the root node of the mesh network.
+
+    config MESH_NODE_ID
+	int "Identification number"
+	default 0
+	help
+	    Use this number to configure the fixed IP addresses.
+
 endmenu

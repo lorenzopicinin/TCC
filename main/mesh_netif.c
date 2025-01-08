@@ -39,12 +39,37 @@ typedef struct mesh_netif_driver {
 /*******************************************************
  *                Constants
  *******************************************************/
+#if CONFIG_MESH_NODE_ID == 0
 static const char* TAG = "mesh_netif";
-const esp_netif_ip_info_t g_mesh_netif_subnet_ip = {        // mesh subnet IP info
+const esp_netif_ip_info_t root_ap_interface_ip = {        // mesh subnet IP info
         .ip = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
         .gw = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
 };
+
+#elif CONFIG_MESH_NODE_ID == 1
+const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
+        .ip = { .addr = ESP_IP4TOADDR( 10, 0, 0, 5) },
+        .gw = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
+        .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
+};
+const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
+        .ip = { .addr = ESP_IP4TOADDR( 10, 0, 1, 1) },
+        .gw = { .addr = ESP_IP4TOADDR( 10, 0, 1, 1) },
+        .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
+};
+#else
+const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
+        .ip = { .addr = ESP_IP4TOADDR( 10, 0, 1, 5) },
+        .gw = { .addr = ESP_IP4TOADDR( 10, 0, 1, 1) },
+        .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
+};
+const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
+        .ip = { .addr = ESP_IP4TOADDR( 10, 0, 2, 1) },
+        .gw = { .addr = ESP_IP4TOADDR( 10, 0, 2, 1) },
+        .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
+};
+#endif
 
 /*******************************************************
  *                Variable Definitions
@@ -60,7 +85,7 @@ static mesh_raw_recv_cb_t *s_mesh_raw_recv_cb = NULL;
  *******************************************************/
 //  setup DHCP server's DNS OFFER
 //
-static esp_err_t set_dhcps_dns(esp_netif_t *netif, uint32_t addr)
+/*static esp_err_t set_dhcps_dns(esp_netif_t *netif, uint32_t addr)
 {
     esp_netif_dns_info_t dns;
     dns.ip.u_addr.ip4.addr = addr;
@@ -71,7 +96,7 @@ static esp_err_t set_dhcps_dns(esp_netif_t *netif, uint32_t addr)
     ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_start(netif));
     return ESP_OK;
 }
-
+*/
 // Receive task
 //
 static void receive_task(void *arg)
@@ -338,7 +363,7 @@ static esp_netif_t* create_mesh_link_ap(void)
 {
     esp_netif_inherent_config_t base_cfg = ESP_NETIF_INHERENT_DEFAULT_WIFI_AP();
     base_cfg.if_desc = "mesh_link_ap";
-    base_cfg.ip_info = &g_mesh_netif_subnet_ip;
+    base_cfg.ip_info = &root_ap_interface_ip;
 
     esp_netif_config_t cfg = {
             .base = &base_cfg,
@@ -397,9 +422,9 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
             return ESP_FAIL;
         }
         esp_netif_attach(netif_ap, driver);
-        set_dhcps_dns(netif_ap, addr);
+        //set_dhcps_dns(netif_ap, addr);
         start_mesh_link_ap();
-        ip_napt_enable(g_mesh_netif_subnet_ip.ip.addr, 1);
+        ip_napt_enable(root_ap_interface_ip.ip.addr, 1);
     }
     return ESP_OK;
 }
