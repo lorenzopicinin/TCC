@@ -39,8 +39,8 @@ typedef struct mesh_netif_driver {
 /*******************************************************
  *                Constants
  *******************************************************/
-#if CONFIG_MESH_NODE_ID == 0
 static const char* TAG = "mesh_netif";
+#if CONFIG_MESH_NODE_ID == 0
 const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
         .ip = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
         .gw = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
@@ -171,7 +171,7 @@ static esp_err_t mesh_netif_transmit_from_root_ap(void *h, void *buffer, size_t 
     data.proto = MESH_PROTO_STA; // sending from root AP -> Node's STA
     data.tos = MESH_TOS_P2P;
     if (MAC_ADDR_EQUAL(dest_addr.addr, eth_broadcast)) {
-        ESP_LOGD(MESH_TAG, "Broadcasting!");
+        ESP_LOGD(TAG, "Broadcasting!");
         esp_mesh_get_routing_table((mesh_addr_t *) &s_route_table,
                                    CONFIG_MESH_ROUTE_TABLE_SIZE * 6, &route_table_size);
         for (int i = 0; i < route_table_size; i++) {
@@ -179,7 +179,7 @@ static esp_err_t mesh_netif_transmit_from_root_ap(void *h, void *buffer, size_t 
                 ESP_LOGD(TAG, "That was me, skipping!");
                 continue;
             }
-            ESP_LOGD(MESH_TAG, "Broadcast: Sending to [%d] " MACSTR, i, MAC2STR(s_route_table[i].addr));
+            ESP_LOGD(TAG, "Broadcast: Sending to [%d] " MACSTR, i, MAC2STR(s_route_table[i].addr));
             esp_err_t err = esp_mesh_send(&s_route_table[i], &data, MESH_DATA_P2P, NULL, 0);
             if (ESP_OK != err) {
                 ESP_LOGE(TAG, "Send with err code %d %s", err, esp_err_to_name(err));
@@ -478,7 +478,7 @@ esp_err_t mesh_netifs_start(bool is_root)
         // now we create a mesh driver and attach it to the existing netif
         mesh_netif_driver_t driver = mesh_create_if_driver(false, false);
         if (driver == NULL) {
-            ESP_LOGE(MESH_TAG, "Failed to create wifi interface handle");
+            ESP_LOGE(TAG, "Failed to create wifi interface handle");
             return ESP_FAIL;
         }
         esp_netif_attach(netif_sta, driver);
