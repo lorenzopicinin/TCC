@@ -46,7 +46,7 @@ static mesh_addr_t s_route_table[CONFIG_MESH_ROUTE_TABLE_SIZE];
 static int s_route_table_size = 0;
 static SemaphoreHandle_t s_route_table_lock = NULL;
 static uint8_t s_mesh_tx_payload[CONFIG_MESH_ROUTE_TABLE_SIZE*6+1];
-
+static esp_netif_ip_info_t interface_ip_info = {0};
 
 /*******************************************************
  *                Function Declarations
@@ -372,6 +372,8 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
     ESP_LOGI(MESH_TAG, "<IP_EVENT_STA_GOT_IP>IP:" IPSTR, IP2STR(&event->ip_info.ip));
     s_current_ip.addr = event->ip_info.ip.addr;
+    esp_netif_get_ip_info(netif_sta, &interface_ip_info);
+    ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
 #if !CONFIG_MESH_USE_GLOBAL_DNS_IP
     esp_netif_t *netif = event->esp_netif;
     esp_netif_dns_info_t dns;
@@ -379,6 +381,8 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     mesh_netif_start_root_ap(esp_mesh_is_root(), dns.ip.u_addr.ip4.addr);
 #endif
     esp_mesh_comm_mqtt_task_start();
+    esp_netif_get_ip_info(netif_ap, &interface_ip_info);
+    ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
 }
 
 
@@ -391,6 +395,8 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     /*  crete network interfaces for mesh (only station instance saved for further manipulation, soft AP instance ignored */
     ESP_ERROR_CHECK(mesh_netifs_init(recv_cb));
+    /*  initialize built in blue led  */
+    gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
 
     /*  wifi initialization */
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
@@ -405,6 +411,12 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_mesh_set_max_layer(CONFIG_MESH_MAX_LAYER));
     ESP_ERROR_CHECK(esp_mesh_set_vote_percentage(1));
     ESP_ERROR_CHECK(esp_mesh_set_ap_assoc_expire(10));
+    ESP_ERROR_CHECK(esp_mesh_fix_root(true));
+    ESP_ERROR_CHECK(esp_mesh_allow_root_conflicts(false));
+#if CONFIG_MESH_NODE_ID == 0
+    ESP_ERROR_CHECK(esp_mesh_set_type(MESH_ROOT));
+    gpio_set_level(GPIO_NUM_2, 1);
+#endif
     /* set blocking time of esp_mesh_send() to 30s, to prevent the esp_mesh_send() from permanently for some reason */
     ESP_ERROR_CHECK(esp_mesh_send_block_time(30000));
     mesh_cfg_t cfg = MESH_INIT_CONFIG_DEFAULT();

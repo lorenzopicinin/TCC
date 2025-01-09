@@ -19,6 +19,9 @@
  *******************************************************/
 typedef void (mesh_raw_recv_cb_t)(mesh_addr_t *from, mesh_data_t *data);
 
+extern esp_netif_t *netif_ap;
+extern esp_netif_t *netif_sta;
+
 /*******************************************************
  *                Function Declarations
  *******************************************************/
