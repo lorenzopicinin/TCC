@@ -349,6 +349,7 @@ static esp_err_t start_mesh_link_sta(void)
     uint8_t mac[MAC_ADDR_LEN];
     esp_wifi_get_mac(WIFI_IF_STA, mac);
     esp_netif_set_mac(netif_sta, mac);
+    //esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     esp_netif_action_connected(netif_sta, NULL, 0, NULL);
     return ESP_OK;
@@ -402,13 +403,14 @@ static esp_netif_t* create_mesh_link_sta(void)
 {
     esp_netif_inherent_config_t base_cfg = ESP_NETIF_INHERENT_DEFAULT_WIFI_STA();
     base_cfg.if_desc = "mesh_link_sta";
-
+    base_cfg.ip_info = &sta_interface_ip;
     esp_netif_config_t cfg = {
         .base = &base_cfg,
         .driver = NULL,
         .stack = ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA };
     esp_netif_t * netif = esp_netif_new(&cfg);
     #if CONFIG_MESH_NODE_ID != 0
+	esp_netif_dhcpc_stop(netif_sta);
         esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
     #endif
     assert(netif);
@@ -428,7 +430,7 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
         esp_netif_attach(netif_ap, driver);
         //set_dhcps_dns(netif_ap, addr);
 	esp_netif_dhcps_stop(netif_ap);
-	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+	//esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
         start_mesh_link_ap();
         ip_napt_enable(ap_interface_ip.ip.addr, 1);
     }
