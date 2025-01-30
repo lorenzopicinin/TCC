@@ -17,6 +17,8 @@
 #include "mesh_netif.h"
 #include "driver/gpio.h"
 #include "freertos/semphr.h"
+#include "ping/ping_sock.h"
+#include <arpa/inet.h>
 
 /*******************************************************
  *                Macros
@@ -46,7 +48,8 @@ static mesh_addr_t s_route_table[CONFIG_MESH_ROUTE_TABLE_SIZE];
 static int s_route_table_size = 0;
 static SemaphoreHandle_t s_route_table_lock = NULL;
 static uint8_t s_mesh_tx_payload[CONFIG_MESH_ROUTE_TABLE_SIZE*6+1];
-static esp_netif_ip_info_t interface_ip_info = {0};
+static esp_netif_ip_info_t interface_ip_info = {0};   
+static esp_ping_handle_t ping;
 
 /*******************************************************
  *                Function Declarations
@@ -107,7 +110,7 @@ static void check_button(void* args)
     while (run_check_button) {
         new_level = gpio_get_level(EXAMPLE_BUTTON_GPIO);
         if (!new_level && old_level) {
-            if (s_route_table_size && !esp_mesh_is_root()) {
+            /*if (s_route_table_size && !esp_mesh_is_root()) {
                 ESP_LOGW(MESH_TAG, "Key pressed!");
                 mesh_data_t data;
                 uint8_t *my_mac = mesh_netif_get_station_mac();
@@ -131,7 +134,9 @@ static void check_button(void* args)
                             MACSTR ": sent with err code: %d", i, MAC2STR(s_route_table[i].addr), err);
                 }
                 xSemaphoreGive(s_route_table_lock);
-            }
+            }*/
+	
+	    esp_ping_start(ping);
         }
         old_level = new_level;
         vTaskDelay(50 / portTICK_PERIOD_MS);
@@ -140,7 +145,7 @@ static void check_button(void* args)
 
 }
 
-
+/*
 void esp_mesh_mqtt_task(void *arg)
 {
     is_running = true;
@@ -186,7 +191,7 @@ esp_err_t esp_mesh_comm_mqtt_task_start(void)
     }
     return ESP_OK;
 }
-
+*/
 void mesh_event_handler(void *arg, esp_event_base_t event_base,
                         int32_t event_id, void *event_data)
 {
@@ -380,9 +385,99 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     ESP_ERROR_CHECK(esp_netif_get_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns));
     mesh_netif_start_root_ap(esp_mesh_is_root(), dns.ip.u_addr.ip4.addr);
 #endif
-    esp_mesh_comm_mqtt_task_start();
+  //  esp_mesh_comm_mqtt_task_start();
     esp_netif_get_ip_info(netif_ap, &interface_ip_info);
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
+}
+
+/* PING APP */
+
+static void test_on_ping_success(esp_ping_handle_t hdl, void *args)
+{
+    // optionally, get callback arguments
+    // const char* str = (const char*) args;
+    // printf("%s\r\n", str); // "foo"
+    uint8_t ttl;
+    uint16_t seqno;
+    uint32_t elapsed_time, recv_len;
+    ip_addr_t target_addr;
+    esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_TTL, &ttl, sizeof(ttl));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_IPADDR, &target_addr, sizeof(target_addr));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_SIZE, &recv_len, sizeof(recv_len));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &elapsed_time, sizeof(elapsed_time));
+    printf("%" PRIu32 "bytes from %s icmp_seq=%d ttl=%d time=%" PRIu32 "ms\n",
+           recv_len, inet_ntoa(target_addr.u_addr.ip4), seqno, ttl, elapsed_time);
+}
+
+static void test_on_ping_timeout(esp_ping_handle_t hdl, void *args)
+{
+    uint16_t seqno;
+    ip_addr_t target_addr;
+    esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_IPADDR, &target_addr, sizeof(target_addr));
+    printf("From %s icmp_seq=%d timeout\n", inet_ntoa(target_addr.u_addr.ip4), seqno);
+}
+
+static void test_on_ping_end(esp_ping_handle_t hdl, void *args)
+{
+    uint32_t transmitted;
+    uint32_t received;
+    uint32_t total_time_ms;
+
+    esp_ping_get_profile(hdl, ESP_PING_PROF_REQUEST, &transmitted, sizeof(transmitted));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_REPLY, &received, sizeof(received));
+    esp_ping_get_profile(hdl, ESP_PING_PROF_DURATION, &total_time_ms, sizeof(total_time_ms));
+    printf("%" PRIu32 "packets transmitted, %" PRIu32 "received, time %" PRIu32 "ms\n", transmitted, received, total_time_ms);
+}
+
+void initialize_ping()
+{
+    /* convert URL to IP address */
+    ip_addr_t target_addr;
+    esp_ip4_addr_t gw_addr;
+    /*struct addrinfo hint;
+    struct addrinfo *res = NULL;
+    memset(&hint, 0, sizeof(hint));
+    memset(&target_addr, 0, sizeof(target_addr));
+    getaddrinfo("www.espressif.com", NULL, &hint, &res);
+    struct in_addr addr4 = ((struct sockaddr_in *) (res->ai_addr))->sin_addr;
+    inet_addr_to_ip4addr(ip_2_ip4(&target_addr), &addr4);
+    freeaddrinfo(res);*/
+
+    esp_netif_str_to_ip4("10.0.0.1", &gw_addr);
+
+    memcpy((char *)&target_addr.u_addr.ip4, (char *)&gw_addr, sizeof(gw_addr));
+    target_addr.type = IPADDR_TYPE_V4;
+
+    esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
+    ping_config.target_addr = target_addr;          // target IP address
+    //ping_config.count = ESP_PING_COUNT_INFINITE;    // ping in infinite mode, esp_ping_stop can stop it
+
+    /* set callback functions */
+    esp_ping_callbacks_t cbs;
+    cbs.on_ping_success = test_on_ping_success;
+    cbs.on_ping_timeout = test_on_ping_timeout;
+    cbs.on_ping_end = test_on_ping_end;
+    cbs.cb_args = "foo";  // arguments that feeds to all callback functions, can be NULL
+    //cbs.cb_args = eth_event_group;
+
+//    esp_ping_handle_t ping;
+    esp_ping_new_session(&ping_config, &cbs, &ping);
+}
+
+esp_err_t esp_mesh_ping_task_start(void)
+{
+    static bool is_ping_task_started = false;
+
+    s_route_table_lock = xSemaphoreCreateMutex();
+
+    if (!is_ping_task_started) {
+        //xTaskCreate(esp_mesh_ping_task, "ping task", 3072, NULL, 5, NULL);
+        xTaskCreate(check_button, "check button task", 3072, NULL, 5, NULL);
+        is_ping_task_started = true;
+    }
+    return ESP_OK;
 }
 
 
@@ -442,5 +537,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_mesh_start());
     ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%" PRId32 ", %s",  esp_get_free_heap_size(),
              esp_mesh_is_root_fixed() ? "root fixed" : "root not fixed");
-    /* delegate ip address */
+    /* ping session */
+    initialize_ping();
+    ESP_ERROR_CHECK(esp_mesh_ping_task_start());
 }
