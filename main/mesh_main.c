@@ -32,6 +32,11 @@
 #include "lwip/sys.h"
 #include <lwip/netdb.h>
 
+#include "sdkconfig.h"
+#include <unistd.h>
+#include <sys/socket.h>
+#include <errno.h>
+#include <netdb.h>            // struct addrinfo
 /*******************************************************
  *                Macros
  *******************************************************/
@@ -40,8 +45,8 @@
 #define KEEPALIVE_IDLE              CONFIG_EXAMPLE_KEEPALIVE_IDLE
 #define KEEPALIVE_INTERVAL          CONFIG_EXAMPLE_KEEPALIVE_INTERVAL
 #define KEEPALIVE_COUNT             CONFIG_EXAMPLE_KEEPALIVE_COUNT
+#define TCP_HOST_TYPE               CONFIG_TCP_HOST_TYPE
 
-static const char *TAG = "example";
 // commands for internal mesh communication:
 // <CMD> <PAYLOAD>, where CMD is one character, payload is variable dep. on command
 #define CMD_KEYPRESSED 0x55
@@ -54,6 +59,8 @@ static const char *TAG = "example";
 static const char *MESH_TAG = "mesh_main";
 static const uint8_t MESH_ID[6] = { 0x77, 0x77, 0x77, 0x77, 0x77, 0x76};
 
+static const char *TAG = "tcp_connection";
+static const char *payload[120];// = "Hello from the client!!! ";
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
@@ -67,7 +74,8 @@ static SemaphoreHandle_t s_route_table_lock = NULL;
 static uint8_t s_mesh_tx_payload[CONFIG_MESH_ROUTE_TABLE_SIZE*6+1];
 static esp_netif_ip_info_t interface_ip_info = {0};   
 static esp_ping_handle_t ping;
-
+static uint16_t total_packet_sent = 0;
+static uint16_t total_packet_received = 0;
 /*******************************************************
  *                Function Declarations
  *******************************************************/
@@ -507,6 +515,7 @@ static void tcp_server_task(void *pvParameters)
     int keepInterval = KEEPALIVE_INTERVAL;
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
+    char rx_buffer[150];
 
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
@@ -553,6 +562,10 @@ static void tcp_server_task(void *pvParameters)
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
+	uint16_t server_packet_received_count = 0;
+	uint16_t server_packet_sent_count = 0;
+	uint16_t node_total_tx = 0;
+	uint16_t node_total_rx = 0;
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
             break;
@@ -570,14 +583,142 @@ static void tcp_server_task(void *pvParameters)
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
  //       do_retransmit(sock);
-
+	  char *msg[1400];// = "I hear you now";
+          //int err = send(sock, msg, sizeof(msg), 0);
+	  //if (err < 0) {
+	   //   ESP_LOGE(TAG, "send failed: errno %d", errno);
+	    //  break;
+	  //}
+	  while (1){
+            int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+            // Error occurred during receiving
+            if (len < 0) {
+                ESP_LOGE(TAG, "recv failed: errno %d", errno);
+                break;
+            }
+            // Data received
+            else {
+                rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
+                ESP_LOGI(TAG, "Received %d bytes", len);
+                //ESP_LOGI(TAG, "%s", rx_buffer);
+		server_packet_received_count = server_packet_received_count + 1;
+		if (len < 120) {
+			ESP_LOGI(TAG, "Received data from mesh node");
+			node_total_tx = rx_buffer[0] | (rx_buffer[1] << 8);
+			node_total_rx = rx_buffer[2] | (rx_buffer[3] << 8);
+			ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d", node_total_rx, node_total_tx);
+			break;
+		}
+            }
+	    // Send data
+	    int rply = send(sock, msg, sizeof(msg), 0);
+	    if (rply < 0) {
+		    ESP_LOGE(TAG, "send failed: errno %d", errno);
+		    break;
+	    }
+	    else {
+		    server_packet_sent_count = server_packet_sent_count + 1;
+	    }
+	  }
         shutdown(sock, 0);
         close(sock);
+
+	ESP_LOGI(TAG, "Total packets sent from server: %d, and received: %d", server_packet_sent_count, server_packet_received_count); 
     }
 
 CLEAN_UP:
     close(listen_sock);
     vTaskDelete(NULL);
+}
+
+void tcp_client(void)
+{
+    char rx_buffer[1500];
+    char host_ip[] = "10.0.0.1";   //tcp server mesh addr
+    int addr_family = 0;
+    int ip_protocol = 0;
+
+    while (1) {
+#if defined(CONFIG_EXAMPLE_IPV4)
+        struct sockaddr_in dest_addr;
+        inet_pton(AF_INET, host_ip, &dest_addr.sin_addr);
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(PORT);
+        addr_family = AF_INET;
+        ip_protocol = IPPROTO_IP;
+#elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
+        struct sockaddr_storage dest_addr = { 0 };
+        ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_STREAM, &ip_protocol, &addr_family, &dest_addr));
+#endif
+	uint16_t packet_sent_counter = 0;
+	uint16_t packet_received_counter = 0;
+	unsigned char info_payload[4];
+        int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
+        if (sock < 0) {
+            ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+            break;
+        }
+        ESP_LOGI(TAG, "Socket created, connecting to %s:%d", host_ip, PORT);
+
+        int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        if (err != 0) {
+            ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
+            break;
+        }
+        ESP_LOGI(TAG, "Successfully connected");
+
+        while (1) {
+            int err = send(sock, payload, sizeof(payload), 0);
+            if (err < 0) {
+                ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
+                break;
+            }
+	    else {
+	//	ESP_LOGI(TAG, "Message sent");
+	   	packet_sent_counter = packet_sent_counter + 1;
+	   	if (packet_sent_counter >= 40){              //número de mensagens enviadas em uma sessão
+		   	break;
+	   	}
+	    }
+            int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+            // Error occurred during receiving
+            if (len < 0) {
+                ESP_LOGE(TAG, "recv failed: errno %d", errno);
+                break;
+            }
+            // Data received
+            else {
+                rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
+                //ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
+                //ESP_LOGI(TAG, "%s", rx_buffer);
+		packet_received_counter = packet_received_counter + 1;
+            }
+	   vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
+        }
+
+	total_packet_sent = total_packet_sent + packet_sent_counter;
+	total_packet_received = total_packet_received + packet_received_counter;
+	info_payload[0] = (total_packet_sent & 0xFF);  // Low byte
+    	info_payload[1] = (total_packet_sent >> 8) & 0xFF;  // High byte
+
+    	// Pack uint16_2 into the next 2 bytes of payload
+    	info_payload[2] = (total_packet_received & 0xFF);  // Low byte
+    	info_payload[3] = (total_packet_received >> 8) & 0xFF;  // High byte	
+
+        int inf = send(sock, info_payload, sizeof(info_payload), 0);
+        if (inf < 0) {
+            ESP_LOGE(TAG, "Error occurred during sending of info to root: errno %d", errno);
+        }
+	else {
+		ESP_LOGI(TAG, "Sent test info to root");
+	}
+
+        if (sock != -1) {
+            ESP_LOGE(TAG, "Shutting down socket and restarting...");
+            shutdown(sock, 0);
+            close(sock);
+        }
+    }
 }
 
 void app_main(void)
@@ -639,8 +780,12 @@ void app_main(void)
     /* ping session */
     initialize_ping();
     ESP_ERROR_CHECK(esp_mesh_ping_task_start());
+#if TCP_HOST_TYPE == 0
     /* tcp server */
-//    ESP_ERROR_CHECK(example_connect());
-
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
+#else
+    /* tcp client */
+    vTaskDelay(10000 / portTICK_PERIOD_MS);
+    tcp_client();
+#endif
 }

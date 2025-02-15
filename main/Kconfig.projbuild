@@ -144,4 +144,10 @@ menu "Example Configuration"
         help
             Keep-alive probe packet retry count.
 
+    config TCP_HOST_TYPE
+	int "TCP Server '0' or TCP Client '1'"
+	default 0
+	help
+	    The type of the tcp host.
+
 endmenu
