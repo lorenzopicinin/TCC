@@ -61,6 +61,7 @@ static const uint8_t MESH_ID[6] = { 0x77, 0x77, 0x77, 0x77, 0x77, 0x76};
 
 static const char *TAG = "tcp_connection";
 static const char *payload[120];// = "Hello from the client!!! ";
+static const char *msg[1400];
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
@@ -82,6 +83,8 @@ static uint16_t total_packet_received = 0;
 // interaction with public mqtt broker
 void mqtt_app_start(void);
 void mqtt_app_publish(char* topic, char *publish_string);
+static void tcp_server_task(void *pvParameters);
+void tcp_client(void);
 
 /*******************************************************
  *                Function Definitions
@@ -125,7 +128,7 @@ void static recv_cb(mesh_addr_t *from, mesh_data_t *data)
         ESP_LOGE(MESH_TAG, "Error in receiving raw mesh data: Unknown command");
     }
 }
-
+/*
 static void check_button(void* args)
 {
     static bool old_level = true;
@@ -135,7 +138,7 @@ static void check_button(void* args)
     while (run_check_button) {
         new_level = gpio_get_level(EXAMPLE_BUTTON_GPIO);
         if (!new_level && old_level) {
-            /*if (s_route_table_size && !esp_mesh_is_root()) {
+           */ /*if (s_route_table_size && !esp_mesh_is_root()) {
                 ESP_LOGW(MESH_TAG, "Key pressed!");
                 mesh_data_t data;
                 uint8_t *my_mac = mesh_netif_get_station_mac();
@@ -161,7 +164,7 @@ static void check_button(void* args)
                 xSemaphoreGive(s_route_table_lock);
             }*/
 	
-	    esp_ping_start(ping);
+/*	    esp_ping_start(ping);
         }
         old_level = new_level;
         vTaskDelay(50 / portTICK_PERIOD_MS);
@@ -169,7 +172,7 @@ static void check_button(void* args)
     vTaskDelete(NULL);
 
 }
-
+*/
 /*
 void esp_mesh_mqtt_task(void *arg)
 {
@@ -413,10 +416,17 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
   //  esp_mesh_comm_mqtt_task_start();
     esp_netif_get_ip_info(netif_ap, &interface_ip_info);
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
+
+#if TCP_HOST_TYPE == 0
+    xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
+#else
+    tcp_client();
+#endif
+
 }
 
 /* PING APP */
-
+/*
 static void test_on_ping_success(esp_ping_handle_t hdl, void *args)
 {
     // optionally, get callback arguments
@@ -454,13 +464,13 @@ static void test_on_ping_end(esp_ping_handle_t hdl, void *args)
     esp_ping_get_profile(hdl, ESP_PING_PROF_REPLY, &received, sizeof(received));
     esp_ping_get_profile(hdl, ESP_PING_PROF_DURATION, &total_time_ms, sizeof(total_time_ms));
     printf("%" PRIu32 "packets transmitted, %" PRIu32 "received, time %" PRIu32 "ms\n", transmitted, received, total_time_ms);
-}
-
+}*/
+/*
 void initialize_ping()
 {
-    /* convert URL to IP address */
-    ip_addr_t target_addr;
-    esp_ip4_addr_t gw_addr;
+  */  /* convert URL to IP address */
+    //ip_addr_t target_addr;
+    //esp_ip4_addr_t gw_addr;
     /*struct addrinfo hint;
     struct addrinfo *res = NULL;
     memset(&hint, 0, sizeof(hint));
@@ -469,7 +479,7 @@ void initialize_ping()
     struct in_addr addr4 = ((struct sockaddr_in *) (res->ai_addr))->sin_addr;
     inet_addr_to_ip4addr(ip_2_ip4(&target_addr), &addr4);
     freeaddrinfo(res);*/
-
+/*
     esp_netif_str_to_ip4("10.0.0.1", &gw_addr);
 
     memcpy((char *)&target_addr.u_addr.ip4, (char *)&gw_addr, sizeof(gw_addr));
@@ -479,8 +489,8 @@ void initialize_ping()
     ping_config.target_addr = target_addr;          // target IP address
     //ping_config.count = ESP_PING_COUNT_INFINITE;    // ping in infinite mode, esp_ping_stop can stop it
 
-    /* set callback functions */
-    esp_ping_callbacks_t cbs;
+  */  /* set callback functions */
+    /*esp_ping_callbacks_t cbs;
     cbs.on_ping_success = test_on_ping_success;
     cbs.on_ping_timeout = test_on_ping_timeout;
     cbs.on_ping_end = test_on_ping_end;
@@ -490,8 +500,8 @@ void initialize_ping()
 //    esp_ping_handle_t ping;
     esp_ping_new_session(&ping_config, &cbs, &ping);
 }
-
-esp_err_t esp_mesh_ping_task_start(void)
+*/
+/*esp_err_t esp_mesh_ping_task_start(void)
 {
     static bool is_ping_task_started = false;
 
@@ -504,7 +514,7 @@ esp_err_t esp_mesh_ping_task_start(void)
     }
     return ESP_OK;
 }
-
+*/
 static void tcp_server_task(void *pvParameters)
 {
     char addr_str[128];
@@ -583,7 +593,6 @@ static void tcp_server_task(void *pvParameters)
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
  //       do_retransmit(sock);
-	  char *msg[1400];// = "I hear you now";
           //int err = send(sock, msg, sizeof(msg), 0);
 	  //if (err < 0) {
 	   //   ESP_LOGE(TAG, "send failed: errno %d", errno);
@@ -596,29 +605,30 @@ static void tcp_server_task(void *pvParameters)
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
                 break;
             }
+	    else if (len < 120) {
+		ESP_LOGI(TAG, "Received data from mesh node");
+		node_total_tx = rx_buffer[0] | (rx_buffer[1] << 8);
+		node_total_rx = rx_buffer[2] | (rx_buffer[3] << 8);
+		ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d", node_total_rx, node_total_tx);
+		break;
+	    }
             // Data received
             else {
                 rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
                 ESP_LOGI(TAG, "Received %d bytes", len);
                 //ESP_LOGI(TAG, "%s", rx_buffer);
 		server_packet_received_count = server_packet_received_count + 1;
-		if (len < 120) {
-			ESP_LOGI(TAG, "Received data from mesh node");
-			node_total_tx = rx_buffer[0] | (rx_buffer[1] << 8);
-			node_total_rx = rx_buffer[2] | (rx_buffer[3] << 8);
-			ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d", node_total_rx, node_total_tx);
-			break;
-		}
-            }
-	    // Send data
-	    int rply = send(sock, msg, sizeof(msg), 0);
-	    if (rply < 0) {
+		
+	    	// Send data
+	    	int rply = send(sock, msg, sizeof(msg), 0);
+	    	if (rply < 0) {
 		    ESP_LOGE(TAG, "send failed: errno %d", errno);
 		    break;
-	    }
-	    else {
+	    	}
+	    	else {
 		    server_packet_sent_count = server_packet_sent_count + 1;
-	    }
+	    	}
+            }
 	  }
         shutdown(sock, 0);
         close(sock);
@@ -676,7 +686,7 @@ void tcp_client(void)
 	    else {
 	//	ESP_LOGI(TAG, "Message sent");
 	   	packet_sent_counter = packet_sent_counter + 1;
-	   	if (packet_sent_counter >= 40){              //número de mensagens enviadas em uma sessão
+	   	if (packet_sent_counter >= 100){              //número de mensagens enviadas em uma sessão
 		   	break;
 	   	}
 	    }
@@ -778,14 +788,6 @@ void app_main(void)
     ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%" PRId32 ", %s",  esp_get_free_heap_size(),
              esp_mesh_is_root_fixed() ? "root fixed" : "root not fixed");
     /* ping session */
-    initialize_ping();
-    ESP_ERROR_CHECK(esp_mesh_ping_task_start());
-#if TCP_HOST_TYPE == 0
-    /* tcp server */
-    xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
-#else
-    /* tcp client */
-    vTaskDelay(10000 / portTICK_PERIOD_MS);
-    tcp_client();
-#endif
+//   initialize_ping();
+//    ESP_ERROR_CHECK(esp_mesh_ping_task_start());
 }
