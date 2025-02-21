@@ -60,8 +60,8 @@ static const char *MESH_TAG = "mesh_main";
 static const uint8_t MESH_ID[6] = { 0x77, 0x77, 0x77, 0x77, 0x77, 0x76};
 
 static const char *TAG = "tcp_connection";
-static const char *payload[120];// = "Hello from the client!!! ";
-static const char *msg[1400];
+static const char *payload = "Hello from the client!!! ";
+static const char *msg = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
@@ -605,8 +605,8 @@ static void tcp_server_task(void *pvParameters)
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
                 break;
             }
-	    else if (len < 120) {
-		ESP_LOGI(TAG, "Received data from mesh node");
+	    else if (len != 25) {
+		ESP_LOGI(TAG, "Received data from mesh node with size: %d", len);
 		node_total_tx = rx_buffer[0] | (rx_buffer[1] << 8);
 		node_total_rx = rx_buffer[2] | (rx_buffer[3] << 8);
 		ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d", node_total_rx, node_total_tx);
@@ -616,14 +616,15 @@ static void tcp_server_task(void *pvParameters)
             else {
                 rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
                 ESP_LOGI(TAG, "Received %d bytes", len);
-                //ESP_LOGI(TAG, "%s", rx_buffer);
+                ESP_LOGI(TAG, "%s", rx_buffer);
+		len = 0;
 		server_packet_received_count = server_packet_received_count + 1;
 		
 	    	// Send data
-	    	int rply = send(sock, msg, sizeof(msg), 0);
+	    	int rply = send(sock, msg, strlen(msg), 0);
 	    	if (rply < 0) {
 		    ESP_LOGE(TAG, "send failed: errno %d", errno);
-		    break;
+		   // break;
 	    	}
 	    	else {
 		    server_packet_sent_count = server_packet_sent_count + 1;
@@ -643,7 +644,7 @@ CLEAN_UP:
 
 void tcp_client(void)
 {
-    char rx_buffer[1500];
+    char rx_buffer[150];
     char host_ip[] = "10.0.0.1";   //tcp server mesh addr
     int addr_family = 0;
     int ip_protocol = 0;
@@ -662,6 +663,7 @@ void tcp_client(void)
 #endif
 	uint16_t packet_sent_counter = 0;
 	uint16_t packet_received_counter = 0;
+        bool messages_per_session_flag = 0;
 	unsigned char info_payload[4];
         int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
         if (sock < 0) {
@@ -678,16 +680,17 @@ void tcp_client(void)
         ESP_LOGI(TAG, "Successfully connected");
 
         while (1) {
-            int err = send(sock, payload, sizeof(payload), 0);
+            int err = send(sock, payload, strlen(payload), 0);
             if (err < 0) {
                 ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                 break;
             }
 	    else {
-	//	ESP_LOGI(TAG, "Message sent");
 	   	packet_sent_counter = packet_sent_counter + 1;
-	   	if (packet_sent_counter >= 100){              //número de mensagens enviadas em uma sessão
-		   	break;
+		ESP_LOGI(TAG, "Message sent number: %d", packet_sent_counter);
+	   	if (packet_sent_counter >= 20){		//número de mensagens enviadas em uma sessão
+			messages_per_session_flag = 1;
+//		   	break;
 	   	}
 	    }
             int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
@@ -699,11 +702,18 @@ void tcp_client(void)
             // Data received
             else {
                 rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
-                //ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
-                //ESP_LOGI(TAG, "%s", rx_buffer);
+                ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
+                ESP_LOGI(TAG, "%s", rx_buffer);
+		len = 0;
 		packet_received_counter = packet_received_counter + 1;
             }
-	   vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
+	    if (messages_per_session_flag == 1){
+		    
+		    break;
+	    }
+	    else {
+	   	vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
+	    }
         }
 
 	total_packet_sent = total_packet_sent + packet_sent_counter;
@@ -721,9 +731,11 @@ void tcp_client(void)
         }
 	else {
 		ESP_LOGI(TAG, "Sent test info to root");
+		total_packet_sent = 0;
+		total_packet_received = 0;
 	}
 
-        if (sock != -1) {
+        if (messages_per_session_flag == 1) {
             ESP_LOGE(TAG, "Shutting down socket and restarting...");
             shutdown(sock, 0);
             close(sock);
