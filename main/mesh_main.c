@@ -60,11 +60,13 @@ static const char *MESH_TAG = "mesh_main";
 static const uint8_t MESH_ID[6] = { 0x77, 0x77, 0x77, 0x77, 0x77, 0x76};
 
 static const char *TAG = "tcp_connection";
-static const char *payload = "Hello from the client!!! ";
-static const char *msg = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
+//static const char *payload = "\0The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow.";
+//static const char *msg = "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow. Amazingly, few discotheques provide jukeboxes.";
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
+static char payload[120];
+static char msg[150];// = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
 static bool is_running = true;
 static mesh_addr_t mesh_parent_addr;
 static int mesh_layer = -1;
@@ -84,7 +86,7 @@ static uint16_t total_packet_received = 0;
 void mqtt_app_start(void);
 void mqtt_app_publish(char* topic, char *publish_string);
 static void tcp_server_task(void *pvParameters);
-void tcp_client(void);
+static void tcp_client_task(void *pvParameters);
 
 /*******************************************************
  *                Function Definitions
@@ -420,7 +422,7 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
 #if TCP_HOST_TYPE == 0
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
 #else
-    tcp_client();
+    xTaskCreate(tcp_client_task, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
 #endif
 
 }
@@ -527,6 +529,10 @@ static void tcp_server_task(void *pvParameters)
     struct sockaddr_storage dest_addr;
     char rx_buffer[150];
 
+    for (int i = 0; i < 150; i++) {
+        msg[i] = 0xF7;  // fill packet with 1500 bytes
+    }
+
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
         dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
@@ -605,10 +611,10 @@ static void tcp_server_task(void *pvParameters)
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
                 break;
             }
-	    else if (len != 25) {
+	    else if (rx_buffer[0] == 0xFF) {
 		ESP_LOGI(TAG, "Received data from mesh node with size: %d", len);
-		node_total_tx = rx_buffer[0] | (rx_buffer[1] << 8);
-		node_total_rx = rx_buffer[2] | (rx_buffer[3] << 8);
+		node_total_tx = rx_buffer[1] | (rx_buffer[2] << 8);
+		node_total_rx = rx_buffer[3] | (rx_buffer[4] << 8);
 		ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d", node_total_rx, node_total_tx);
 		break;
 	    }
@@ -616,17 +622,18 @@ static void tcp_server_task(void *pvParameters)
             else {
                 rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
                 ESP_LOGI(TAG, "Received %d bytes", len);
-                ESP_LOGI(TAG, "%s", rx_buffer);
+                //ESP_LOGI(TAG, "%s", rx_buffer);
 		len = 0;
 		server_packet_received_count = server_packet_received_count + 1;
 		
 	    	// Send data
-	    	int rply = send(sock, msg, strlen(msg), 0);
+	    	int rply = send(sock, msg, sizeof(msg), 0);
 	    	if (rply < 0) {
 		    ESP_LOGE(TAG, "send failed: errno %d", errno);
 		   // break;
 	    	}
 	    	else {
+		    ESP_LOGI(TAG, "sent reply of %d bytes", rply);
 		    server_packet_sent_count = server_packet_sent_count + 1;
 	    	}
             }
@@ -642,12 +649,17 @@ CLEAN_UP:
     vTaskDelete(NULL);
 }
 
-void tcp_client(void)
+static void tcp_client_task(void *pvParameters)
 {
-    char rx_buffer[150];
+    char rx_buffer[1500];
     char host_ip[] = "10.0.0.1";   //tcp server mesh addr
     int addr_family = 0;
-    int ip_protocol = 0;
+    int ip_protocol = 0;	
+    payload[0] = 0x00;  //to make sure the first byte is not 0xFF
+
+    for (int i = 1; i < 120; i++) {
+        payload[i] = 0xF5;  // fill packet with 1500 bytes
+    }
 
     while (1) {
 #if defined(CONFIG_EXAMPLE_IPV4)
@@ -664,7 +676,7 @@ void tcp_client(void)
 	uint16_t packet_sent_counter = 0;
 	uint16_t packet_received_counter = 0;
         bool messages_per_session_flag = 0;
-	unsigned char info_payload[4];
+	unsigned char info_payload[5];	
         int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
@@ -680,7 +692,7 @@ void tcp_client(void)
         ESP_LOGI(TAG, "Successfully connected");
 
         while (1) {
-            int err = send(sock, payload, strlen(payload), 0);
+            int err = send(sock, payload, sizeof(payload), 0);
             if (err < 0) {
                 ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                 break;
@@ -703,7 +715,7 @@ void tcp_client(void)
             else {
                 rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
                 ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
-                ESP_LOGI(TAG, "%s", rx_buffer);
+                //ESP_LOGI(TAG, "%s", rx_buffer);
 		len = 0;
 		packet_received_counter = packet_received_counter + 1;
             }
@@ -718,12 +730,13 @@ void tcp_client(void)
 
 	total_packet_sent = total_packet_sent + packet_sent_counter;
 	total_packet_received = total_packet_received + packet_received_counter;
-	info_payload[0] = (total_packet_sent & 0xFF);  // Low byte
-    	info_payload[1] = (total_packet_sent >> 8) & 0xFF;  // High byte
+	info_payload[0] = 0xFF;  //indicate that this is the info packet
+	info_payload[1] = (total_packet_sent & 0xFF);  // Low byte
+    	info_payload[2] = (total_packet_sent >> 8) & 0xFF;  // High byte
 
     	// Pack uint16_2 into the next 2 bytes of payload
-    	info_payload[2] = (total_packet_received & 0xFF);  // Low byte
-    	info_payload[3] = (total_packet_received >> 8) & 0xFF;  // High byte	
+    	info_payload[3] = (total_packet_received & 0xFF);  // Low byte
+    	info_payload[4] = (total_packet_received >> 8) & 0xFF;  // High byte	
 
         int inf = send(sock, info_payload, sizeof(info_payload), 0);
         if (inf < 0) {
