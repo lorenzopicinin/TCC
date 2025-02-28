@@ -24,6 +24,8 @@
 #include <sys/param.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+#include "driver/gptimer.h"
 #include "esp_system.h"
 #include "esp_netif.h"
 
@@ -46,6 +48,8 @@
 #define KEEPALIVE_INTERVAL          CONFIG_EXAMPLE_KEEPALIVE_INTERVAL
 #define KEEPALIVE_COUNT             CONFIG_EXAMPLE_KEEPALIVE_COUNT
 #define TCP_HOST_TYPE               CONFIG_TCP_HOST_TYPE
+#define TIMER_DIVIDER         (16)  //  Hardware timer clock divider
+#define TIMER_SCALE           (TIMER_BASE_CLK / TIMER_DIVIDER)  // convert counter value to seconds
 
 // commands for internal mesh communication:
 // <CMD> <PAYLOAD>, where CMD is one character, payload is variable dep. on command
@@ -58,7 +62,7 @@
  *******************************************************/
 static const char *MESH_TAG = "mesh_main";
 static const uint8_t MESH_ID[6] = { 0x77, 0x77, 0x77, 0x77, 0x77, 0x76};
-
+static const int SIG_PORT = 3339;
 static const char *TAG = "tcp_connection";
 //static const char *payload = "\0The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow.";
 //static const char *msg = "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs. Sphinx of black quartz, judge my vow. Amazingly, few discotheques provide jukeboxes.";
@@ -66,7 +70,7 @@ static const char *TAG = "tcp_connection";
  *                Variable Definitions
  *******************************************************/
 static char payload[120];
-static char msg[150];// = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
+static char msg[1500];// = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
 static bool is_running = true;
 static mesh_addr_t mesh_parent_addr;
 static int mesh_layer = -1;
@@ -79,6 +83,8 @@ static esp_netif_ip_info_t interface_ip_info = {0};
 static esp_ping_handle_t ping;
 static uint16_t total_packet_sent = 0;
 static uint16_t total_packet_received = 0;
+static bool test_time_max = 0;
+static gptimer_handle_t gptimer = NULL;
 /*******************************************************
  *                Function Declarations
  *******************************************************/
@@ -87,16 +93,99 @@ void mqtt_app_start(void);
 void mqtt_app_publish(char* topic, char *publish_string);
 static void tcp_server_task(void *pvParameters);
 static void tcp_client_task(void *pvParameters);
-
+static void start_test(void *pvParameters);
 /*******************************************************
  *                Function Definitions
  *******************************************************/
 
+static void example_timer_on_alarm_cb(void)
+{
+    // Stop timer the sooner the better
+    gptimer_stop(gptimer);
+    test_time_max = 1;
+}
+
+static bool initialise_timer(void) {
+    gptimer_alarm_config_t alarm_config = {};  // Zero initialize
+    gptimer_event_callbacks_t cbs = {};
+    gptimer_config_t timer_config = {};
+
+    // Set up the timer configuration
+    timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
+    timer_config.direction = GPTIMER_COUNT_UP;
+    timer_config.resolution_hz = 1000*1000; // 1MHz, 1 tick = 1us
+ //   timer_config.flags = 0; // Ensure default behavior
+
+    // Create timer
+    if (gptimer_new_timer(&timer_config, &gptimer) != ESP_OK) {
+        printf("Failed to create timer\n");
+        return 0;
+    }
+
+    // Set up the alarm configuration
+    alarm_config.alarm_count = 30 * 1000 * 1000; // 30s
+    alarm_config.reload_count = 0; // Start from 0
+    alarm_config.flags.auto_reload_on_alarm = false; // No auto-reload
+
+    // Register the event callback
+    cbs.on_alarm = example_timer_on_alarm_cb;
+
+    // Apply configurations
+    if (gptimer_set_alarm_action(gptimer, &alarm_config) != ESP_OK) {
+        printf("Failed to set timer alarm\n");
+        return 0;
+    }
+
+    if (gptimer_register_event_callbacks(gptimer, &cbs, NULL) != ESP_OK) {
+        printf("Failed to register timer callbacks\n");
+        return 0;
+    }
+
+    if (gptimer_enable(gptimer) != ESP_OK) {
+        printf("Failed to enable timer\n");
+        return 0;
+    }
+
+    gptimer_start(gptimer);
+
+    ESP_LOGI(TAG,"Timer initialized successfully!");
+    return 1;
+}
+/*
+static void initialise_timer(void){
+
+    gptimer_alarm_config_t alarm_config = {0};
+    gptimer_event_callbacks_t cbs = {0};
+    gptimer_config_t timer_config = {0};
+
+    alarm_config.alarm_count = 1 * 1000 * 30; // alarm target = 30s @resolution 1kHz
+    cbs.on_alarm = example_timer_on_alarm_cb; // register user callback
+    timer_config.clk_src = GPTIMER_CLK_SRC_DEFAULT;
+    timer_config.direction = GPTIMER_COUNT_UP;
+    timer_config.resolution_hz = 1000; // 1kHz, 1 tick = 1ms
+
+    gptimer_new_timer(&timer_config, &gptimer);
+    gptimer_set_alarm_action(gptimer, &alarm_config);
+    gptimer_register_event_callbacks(gptimer, &cbs, NULL);
+    gptimer_enable(gptimer);
+}
+*/
 static void initialise_button(void)
 {
     gpio_config_t io_conf = {0};
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.pin_bit_mask = BIT64(EXAMPLE_BUTTON_GPIO);
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pull_up_en = 1;
+    io_conf.pull_down_en = 0;
+    gpio_config(&io_conf);
+}
+
+static void initialise_test_button(void)
+{
+    gpio_config_t io_conf = {0};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.pin_bit_mask = BIT64(27);
     io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pull_up_en = 1;
     io_conf.pull_down_en = 0;
@@ -130,6 +219,109 @@ void static recv_cb(mesh_addr_t *from, mesh_data_t *data)
         ESP_LOGE(MESH_TAG, "Error in receiving raw mesh data: Unknown command");
     }
 }
+
+static void check_test_button(void *pvParameters)
+{
+    static bool old_level = true;
+    bool new_level;
+    bool run_check_button = true;
+    char addr_str[128];
+    char signal[1];
+    int addr_family = (int)pvParameters;
+    int ip_protocol = 0;
+    int keepAlive = 1;
+    int keepIdle = KEEPALIVE_IDLE;
+    int keepInterval = KEEPALIVE_INTERVAL;
+    int keepCount = KEEPALIVE_COUNT;
+    struct sockaddr_storage dest_addr;
+    initialise_test_button();
+
+    signal[0] = 0x10;
+
+    if (addr_family == AF_INET) {
+        struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
+        dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
+        dest_addr_ip4->sin_family = AF_INET;
+        dest_addr_ip4->sin_port = htons(SIG_PORT);
+        ip_protocol = IPPROTO_IP;
+    }
+
+    int listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
+    if (listen_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+    int opt = 1;
+    setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#if defined(CONFIG_EXAMPLE_IPV4) && defined(CONFIG_EXAMPLE_IPV6)
+    // Note that by default IPV6 binds to both protocols, it is must be disabled
+    // if both protocols used at the same time (used in CI)
+    setsockopt(listen_sock, IPPROTO_IPV6, IPV6_V6ONLY, &opt, sizeof(opt));
+#endif
+
+    ESP_LOGI(TAG, "Signaling socket created");
+
+    int err = bind(listen_sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    if (err != 0) {
+        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
+        goto CLEAN_UP;
+    }
+    ESP_LOGI(TAG, "Socket bound, port %d", SIG_PORT);
+
+    err = listen(listen_sock, 1);
+    if (err != 0) {
+        ESP_LOGE(TAG, "Error occurred during listen: errno %d", errno);
+        goto CLEAN_UP;
+    }
+    while (1){
+        ESP_LOGI(TAG, "Socket listening");
+
+        struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
+        socklen_t addr_len = sizeof(source_addr);
+        int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
+        if (sock < 0) {
+            ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
+            break;
+        }
+
+        // Set tcp keepalive option
+        setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
+        setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
+        setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
+        setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
+        // Convert ip address to string
+        if (source_addr.ss_family == PF_INET) {
+            inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
+        }
+        ESP_LOGI(TAG, "Signaling socket accepted ip address: %s", addr_str);
+	  
+        while (run_check_button) {
+        new_level = gpio_get_level(27);
+        if (!new_level && old_level) {
+	    	// Send data
+	    	int rply = send(sock, signal, sizeof(signal), 0);
+	    	if (rply < 0) {
+		    ESP_LOGE(TAG, "send failed: errno %d", errno);
+		   // break;
+	    	}
+	    	else {
+		    ESP_LOGI(TAG, "Sent initiate test signal");
+	    	}
+            }
+        old_level = new_level;
+        vTaskDelay(50 / portTICK_PERIOD_MS);
+	}
+    
+        shutdown(sock, 0);
+        close(sock);
+    }
+CLEAN_UP:
+    close(listen_sock);
+    vTaskDelete(NULL);
+}
+
 /*
 static void check_button(void* args)
 {
@@ -422,7 +614,7 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
 #if TCP_HOST_TYPE == 0
     xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
 #else
-    xTaskCreate(tcp_client_task, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
+    xTaskCreate(start_test, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
 #endif
 
 }
@@ -517,6 +709,20 @@ void initialize_ping()
     return ESP_OK;
 }
 */
+
+esp_err_t esp_mesh_tcp_task_start(void)
+{
+    static bool is_tcp_task_started = false;
+
+    s_route_table_lock = xSemaphoreCreateMutex();
+
+    if (!is_tcp_task_started) {
+        xTaskCreate(check_test_button, "check button task", 4096, (void*)AF_INET, 5, NULL);
+        is_tcp_task_started = true;
+    }
+    return ESP_OK;
+}
+
 static void tcp_server_task(void *pvParameters)
 {
     char addr_str[128];
@@ -529,7 +735,7 @@ static void tcp_server_task(void *pvParameters)
     struct sockaddr_storage dest_addr;
     char rx_buffer[150];
 
-    for (int i = 0; i < 150; i++) {
+    for (int i = 0; i < 1500; i++) {
         msg[i] = 0xF7;  // fill packet with 1500 bytes
     }
 
@@ -651,17 +857,21 @@ CLEAN_UP:
 
 static void tcp_client_task(void *pvParameters)
 {
-    char rx_buffer[1500];
+    char rx_buffer[1510];
     char host_ip[] = "10.0.0.1";   //tcp server mesh addr
     int addr_family = 0;
     int ip_protocol = 0;	
     payload[0] = 0x00;  //to make sure the first byte is not 0xFF
+//    uint16_t packet_sent_counter = 0;
+//    uint16_t packet_received_counter = 0;
 
     for (int i = 1; i < 120; i++) {
         payload[i] = 0xF5;  // fill packet with 1500 bytes
     }
 
-    while (1) {
+    initialise_timer();
+
+    while (!test_time_max) {
 #if defined(CONFIG_EXAMPLE_IPV4)
         struct sockaddr_in dest_addr;
         inet_pton(AF_INET, host_ip, &dest_addr.sin_addr);
@@ -748,11 +958,78 @@ static void tcp_client_task(void *pvParameters)
 		total_packet_received = 0;
 	}
 
-        if (messages_per_session_flag == 1) {
+        if (messages_per_session_flag == 1 || !test_time_max) {
             ESP_LOGE(TAG, "Shutting down socket and restarting...");
             shutdown(sock, 0);
             close(sock);
         }
+    }
+    ESP_LOGE(TAG, "Timer limit reached. Shutting down socket and closing task");
+    //shutdown(sock, 0);
+    //close(sock);
+    vTaskDelete(NULL);
+}
+
+
+static void start_test(void *pvParameters)
+{
+
+    char rx_buffer[2];
+    char host_ip[] = "10.0.0.1";   //tcp server mesh addr
+    int addr_family = 0;
+    int ip_protocol = 0;
+
+    while (1) {
+#if defined(CONFIG_EXAMPLE_IPV4)
+        struct sockaddr_in dest_addr;
+        inet_pton(AF_INET, host_ip, &dest_addr.sin_addr);
+        dest_addr.sin_family = AF_INET;
+        dest_addr.sin_port = htons(SIG_PORT);
+        addr_family = AF_INET;
+        ip_protocol = IPPROTO_IP;
+#elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
+        struct sockaddr_storage dest_addr = { 0 };
+        ESP_ERROR_CHECK(get_addr_from_stdin(SIG_PORT, SOCK_STREAM, &ip_protocol, &addr_family, &dest_addr));
+#endif
+        int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
+        if (sock < 0) {
+            ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+            break;
+        }
+        ESP_LOGI(TAG, "Socket created, connecting to %s:%d", host_ip, SIG_PORT);
+
+        int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        if (err != 0) {
+            ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
+            break;
+        }
+        ESP_LOGI(TAG, "Successfully connected");
+
+	while (1){
+            int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+            // Error occurred during receiving
+            if (len < 0) {
+                ESP_LOGE(TAG, "recv failed: errno %d", errno);
+                break;
+            }
+            // Data received
+            else {
+                rx_buffer[len] = 0; // Null-terminate whatever we received and treat like a string
+                ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
+		if (rx_buffer[0] == 0x10){	
+                    ESP_LOGI(TAG, "Initialize test");
+    		    xTaskCreate(tcp_client_task, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
+		    break;
+		}
+		else{
+		    ESP_LOGI(TAG, "Invalid flag to start test");
+		}
+            }
+	    len = 0;
+	}
+        shutdown(sock, 0);
+        close(sock);
+        vTaskDelay(50000 / portTICK_PERIOD_MS);
     }
 }
 
@@ -815,4 +1092,7 @@ void app_main(void)
     /* ping session */
 //   initialize_ping();
 //    ESP_ERROR_CHECK(esp_mesh_ping_task_start());
+#if CONFIG_MESH_NODE_ID == 0
+    ESP_ERROR_CHECK(esp_mesh_tcp_task_start());
+#endif
 }
