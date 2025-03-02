@@ -70,7 +70,7 @@ static const char *TAG = "tcp_connection";
  *                Variable Definitions
  *******************************************************/
 static char payload[120];
-static char msg[1500];// = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
+static char msg[1400];// = "Me message is this: Go fock yoself beatch!!!!. And shut up please";
 static bool is_running = true;
 static mesh_addr_t mesh_parent_addr;
 static int mesh_layer = -1;
@@ -81,8 +81,6 @@ static SemaphoreHandle_t s_route_table_lock = NULL;
 static uint8_t s_mesh_tx_payload[CONFIG_MESH_ROUTE_TABLE_SIZE*6+1];
 static esp_netif_ip_info_t interface_ip_info = {0};   
 static esp_ping_handle_t ping;
-static uint16_t total_packet_sent = 0;
-static uint16_t total_packet_received = 0;
 static bool test_time_max = 0;
 static gptimer_handle_t gptimer = NULL;
 /*******************************************************
@@ -123,7 +121,7 @@ static bool initialise_timer(void) {
     }
 
     // Set up the alarm configuration
-    alarm_config.alarm_count = 30 * 1000 * 1000; // 30s
+    alarm_config.alarm_count = 120 * 1000 * 1000; // 120s
     alarm_config.reload_count = 0; // Start from 0
     alarm_config.flags.auto_reload_on_alarm = false; // No auto-reload
 
@@ -734,8 +732,10 @@ static void tcp_server_task(void *pvParameters)
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr;
     char rx_buffer[150];
+    uint16_t server_packet_received_count = 0;
+    uint16_t server_packet_sent_count = 0;
 
-    for (int i = 0; i < 1500; i++) {
+    for (int i = 0; i < 1400; i++) {
         msg[i] = 0xF7;  // fill packet with 1500 bytes
     }
 
@@ -784,10 +784,10 @@ static void tcp_server_task(void *pvParameters)
         struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
         socklen_t addr_len = sizeof(source_addr);
         int sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
-	uint16_t server_packet_received_count = 0;
-	uint16_t server_packet_sent_count = 0;
+
 	uint16_t node_total_tx = 0;
 	uint16_t node_total_rx = 0;
+
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
             break;
@@ -804,12 +804,6 @@ static void tcp_server_task(void *pvParameters)
         }
         ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 
- //       do_retransmit(sock);
-          //int err = send(sock, msg, sizeof(msg), 0);
-	  //if (err < 0) {
-	   //   ESP_LOGE(TAG, "send failed: errno %d", errno);
-	    //  break;
-	  //}
 	  while (1){
             int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
             // Error occurred during receiving
@@ -817,12 +811,13 @@ static void tcp_server_task(void *pvParameters)
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
                 break;
             }
-	    else if (rx_buffer[0] == 0xFF) {
+	    else if (rx_buffer[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
 		ESP_LOGI(TAG, "Received data from mesh node with size: %d", len);
 		node_total_tx = rx_buffer[1] | (rx_buffer[2] << 8);
 		node_total_rx = rx_buffer[3] | (rx_buffer[4] << 8);
 		ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d", node_total_rx, node_total_tx);
-		break;
+		//break;
+		goto CLEAN_UP;
 	    }
             // Data received
             else {
@@ -846,11 +841,10 @@ static void tcp_server_task(void *pvParameters)
 	  }
         shutdown(sock, 0);
         close(sock);
-
-	ESP_LOGI(TAG, "Total packets sent from server: %d, and received: %d", server_packet_sent_count, server_packet_received_count); 
     }
 
 CLEAN_UP:
+    ESP_LOGI(TAG, "Total packets sent from server: %d, and received: %d", server_packet_sent_count, server_packet_received_count); 
     close(listen_sock);
     vTaskDelete(NULL);
 }
@@ -861,9 +855,9 @@ static void tcp_client_task(void *pvParameters)
     char host_ip[] = "10.0.0.1";   //tcp server mesh addr
     int addr_family = 0;
     int ip_protocol = 0;	
+    static uint16_t total_packet_sent = 0;
+    static uint16_t total_packet_received = 0;
     payload[0] = 0x00;  //to make sure the first byte is not 0xFF
-//    uint16_t packet_sent_counter = 0;
-//    uint16_t packet_received_counter = 0;
 
     for (int i = 1; i < 120; i++) {
         payload[i] = 0xF5;  // fill packet with 1500 bytes
@@ -883,9 +877,9 @@ static void tcp_client_task(void *pvParameters)
         struct sockaddr_storage dest_addr = { 0 };
         ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_STREAM, &ip_protocol, &addr_family, &dest_addr));
 #endif
-	uint16_t packet_sent_counter = 0;
-	uint16_t packet_received_counter = 0;
         bool messages_per_session_flag = 0;
+        uint16_t packet_sent_counter = 0;
+        uint16_t packet_received_counter = 0;
 	unsigned char info_payload[5];	
         int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
         if (sock < 0) {
@@ -910,7 +904,7 @@ static void tcp_client_task(void *pvParameters)
 	    else {
 	   	packet_sent_counter = packet_sent_counter + 1;
 		ESP_LOGI(TAG, "Message sent number: %d", packet_sent_counter);
-	   	if (packet_sent_counter >= 20){		//número de mensagens enviadas em uma sessão
+	   	if (packet_sent_counter >= 10){		//número de mensagens enviadas em uma sessão
 			messages_per_session_flag = 1;
 //		   	break;
 	   	}
@@ -929,8 +923,8 @@ static void tcp_client_task(void *pvParameters)
 		len = 0;
 		packet_received_counter = packet_received_counter + 1;
             }
+
 	    if (messages_per_session_flag == 1){
-		    
 		    break;
 	    }
 	    else {
@@ -938,35 +932,40 @@ static void tcp_client_task(void *pvParameters)
 	    }
         }
 
-	total_packet_sent = total_packet_sent + packet_sent_counter;
-	total_packet_received = total_packet_received + packet_received_counter;
-	info_payload[0] = 0xFF;  //indicate that this is the info packet
-	info_payload[1] = (total_packet_sent & 0xFF);  // Low byte
-    	info_payload[2] = (total_packet_sent >> 8) & 0xFF;  // High byte
+   	total_packet_sent = total_packet_sent + packet_sent_counter;
+    	total_packet_received = total_packet_received + packet_received_counter;
 
-    	// Pack uint16_2 into the next 2 bytes of payload
-    	info_payload[3] = (total_packet_received & 0xFF);  // Low byte
-    	info_payload[4] = (total_packet_received >> 8) & 0xFF;  // High byte	
+	if (test_time_max){
+    	    info_payload[0] = 0xFF;  //indicate that this is the info packet
+    	    info_payload[1] = (total_packet_sent & 0xFF);  // Low byte
+    	    info_payload[2] = (total_packet_sent >> 8) & 0xFF;  // High byte
 
-        int inf = send(sock, info_payload, sizeof(info_payload), 0);
-        if (inf < 0) {
-            ESP_LOGE(TAG, "Error occurred during sending of info to root: errno %d", errno);
-        }
-	else {
+    	    // Pack uint16_2 into the next 2 bytes of payload
+    	    info_payload[3] = (total_packet_received & 0xFF);  // Low byte
+    	    info_payload[4] = (total_packet_received >> 8) & 0xFF;  // High byte	
+
+    	    int inf = send(sock, info_payload, sizeof(info_payload), 0);
+    	    if (inf < 0) {
+        	ESP_LOGE(TAG, "Error occurred during sending of info to root: errno %d", errno);
+    	    }
+    	    else {
 		ESP_LOGI(TAG, "Sent test info to root");
-		total_packet_sent = 0;
-		total_packet_received = 0;
+    	    }
 	}
 
         if (messages_per_session_flag == 1 || !test_time_max) {
             ESP_LOGE(TAG, "Shutting down socket and restarting...");
             shutdown(sock, 0);
             close(sock);
+	    vTaskDelay(1000 / portTICK_PERIOD_MS); //time between sessions
         }
+	vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
     }
-    ESP_LOGE(TAG, "Timer limit reached. Shutting down socket and closing task");
+
+    ESP_LOGE(TAG, "Timer limit reached. Shutting down socket and closing task..");
     //shutdown(sock, 0);
     //close(sock);
+    test_time_max = 0;
     vTaskDelete(NULL);
 }
 
