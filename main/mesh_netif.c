@@ -319,6 +319,8 @@ static esp_err_t start_mesh_link_ap(void)
     uint8_t mac[MAC_ADDR_LEN];
     esp_wifi_get_mac(WIFI_IF_AP, mac);
     esp_netif_set_mac(netif_ap, mac);
+    esp_netif_dhcps_stop(netif_ap);
+    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
     esp_netif_action_start(netif_ap, NULL, 0, NULL);
     return ESP_OK;
 }
@@ -349,7 +351,10 @@ static esp_err_t start_mesh_link_sta(void)
     uint8_t mac[MAC_ADDR_LEN];
     esp_wifi_get_mac(WIFI_IF_STA, mac);
     esp_netif_set_mac(netif_sta, mac);
-    //esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
+    #if CONFIG_MESH_NODE_ID != 0
+    esp_netif_dhcpc_stop(netif_sta);
+    esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
+    #endif
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     esp_netif_action_connected(netif_sta, NULL, 0, NULL);
     return ESP_OK;
@@ -371,8 +376,8 @@ static esp_netif_t* create_mesh_link_ap(void)
             .driver = NULL,
             .stack = ESP_NETIF_NETSTACK_DEFAULT_WIFI_AP };
     esp_netif_t * netif = esp_netif_new(&cfg);
-    esp_netif_dhcps_stop(netif_ap);
-    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+//    esp_netif_dhcps_stop(netif_ap);
+//    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
     assert(netif);
     return netif;
 }
@@ -410,10 +415,10 @@ static esp_netif_t* create_mesh_link_sta(void)
         .driver = NULL,
         .stack = ESP_NETIF_NETSTACK_DEFAULT_WIFI_STA };
     esp_netif_t * netif = esp_netif_new(&cfg);
-    #if CONFIG_MESH_NODE_ID != 0
-	esp_netif_dhcpc_stop(netif_sta);
-        esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
-    #endif
+//    #if CONFIG_MESH_NODE_ID != 0
+//	esp_netif_dhcpc_stop(netif_sta);    //destivar dhcps ou dhcpc
+//        esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
+//    #endif
     assert(netif);
     return netif;
 }
@@ -430,8 +435,8 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
         }
         esp_netif_attach(netif_ap, driver);
         //set_dhcps_dns(netif_ap, addr);
-	//esp_netif_dhcps_stop(netif_ap);
-	//esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+	esp_netif_dhcps_stop(netif_ap);
+	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
         start_mesh_link_ap();
         ip_napt_enable(ap_interface_ip.ip.addr, 1);
     }
