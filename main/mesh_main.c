@@ -73,8 +73,8 @@ static const char *TAG = "tcp_connection";
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
-static char payload[120];
-static char msg[1400];
+static char payload[1296];
+static char msg[120];
 static bool is_running = true;
 static mesh_addr_t mesh_parent_addr;
 static int mesh_layer = -1;
@@ -128,7 +128,7 @@ static bool initialise_timer(void) {
     }
 
     // Set up the alarm configuration
-    alarm_config.alarm_count = 12 * 1000 * 1000; // 120s
+    alarm_config.alarm_count = 120 * 1000 * 1000; // 120s
     alarm_config.reload_count = 0; // Start from 0
     alarm_config.flags.auto_reload_on_alarm = false; // No auto-reload
 
@@ -157,12 +157,6 @@ static bool initialise_timer(void) {
     return 1;
 }
 
-/*static void connect_to_parent(void)
-{
-    wifi_sta_config_t sta_config = {0};
-    sta_config.ssid = 
-}
-*/
 static void initialise_button(void)
 {
     gpio_config_t io_conf = {0};
@@ -398,88 +392,14 @@ static void check_button(void* args)
     while (run_check_button) {
         new_level = gpio_get_level(EXAMPLE_BUTTON_GPIO);
         if (!new_level && old_level) {
-            /*if (s_route_table_size && !esp_mesh_is_root()) {
-                ESP_LOGW(MESH_TAG, "Key pressed!");
-                mesh_data_t data;
-                uint8_t *my_mac = mesh_netif_get_station_mac();
-                uint8_t data_to_send[6+1] = { CMD_KEYPRESSED, };
-                esp_err_t err;
-                char print[6*3+1]; // MAC addr size + terminator
-                memcpy(data_to_send + 1, my_mac, 6);
-                data.size = 7;
-                data.proto = MESH_PROTO_BIN;
-                data.tos = MESH_TOS_P2P;
-                data.data = data_to_send;
-                snprintf(print, sizeof(print),MACSTR, MAC2STR(my_mac));
-                mqtt_app_publish("/topic/ip_mesh/key_pressed", print);
-                xSemaphoreTake(s_route_table_lock, portMAX_DELAY);
-                for (int i = 0; i < s_route_table_size; i++) {
-                    if (MAC_ADDR_EQUAL(s_route_table[i].addr, my_mac)) {
-                        continue;
-                    }
-                    err = esp_mesh_send(&s_route_table[i], &data, MESH_DATA_P2P, NULL, 0);
-                    ESP_LOGI(MESH_TAG, "Sending to [%d] "
-                            MACSTR ": sent with err code: %d", i, MAC2STR(s_route_table[i].addr), err);
-                }
-                xSemaphoreGive(s_route_table_lock);
-            }*/
-	
 	    esp_ping_start(ping);
         }
         old_level = new_level;
         vTaskDelay(50 / portTICK_PERIOD_MS);
     }
     vTaskDelete(NULL);
-
 }
 
-/*
-void esp_mesh_mqtt_task(void *arg)
-{
-    is_running = true;
-    char *print;
-    mesh_data_t data;
-    esp_err_t err;
-    mqtt_app_start();
-    while (is_running) {
-        asprintf(&print, "layer:%d IP:" IPSTR, esp_mesh_get_layer(), IP2STR(&s_current_ip));
-        ESP_LOGI(MESH_TAG, "Tried to publish %s", print);
-        mqtt_app_publish("/topic/ip_mesh", print);
-        free(print);
-        if (esp_mesh_is_root()) {
-            esp_mesh_get_routing_table((mesh_addr_t *) &s_route_table,
-                                       CONFIG_MESH_ROUTE_TABLE_SIZE * 6, &s_route_table_size);
-            data.size = s_route_table_size * 6 + 1;
-            data.proto = MESH_PROTO_BIN;
-            data.tos = MESH_TOS_P2P;
-            s_mesh_tx_payload[0] = CMD_ROUTE_TABLE;
-            memcpy(s_mesh_tx_payload + 1, s_route_table, s_route_table_size*6);
-            data.data = s_mesh_tx_payload;
-            for (int i = 0; i < s_route_table_size; i++) {
-                err = esp_mesh_send(&s_route_table[i], &data, MESH_DATA_P2P, NULL, 0);
-                ESP_LOGI(MESH_TAG, "Sending routing table to [%d] "
-                        MACSTR ": sent with err code: %d", i, MAC2STR(s_route_table[i].addr), err);
-            }
-        }
-        vTaskDelay(2 * 1000 / portTICK_PERIOD_MS);
-    }
-    vTaskDelete(NULL);
-}
-
-esp_err_t esp_mesh_comm_mqtt_task_start(void)
-{
-    static bool is_comm_mqtt_task_started = false;
-
-    s_route_table_lock = xSemaphoreCreateMutex();
-
-    if (!is_comm_mqtt_task_started) {
-        xTaskCreate(esp_mesh_mqtt_task, "mqtt task", 3072, NULL, 5, NULL);
-        xTaskCreate(check_button, "check button task", 3072, NULL, 5, NULL);
-        is_comm_mqtt_task_started = true;
-    }
-    return ESP_OK;
-}
-*/
 void mesh_event_handler(void *arg, esp_event_base_t event_base,
                         int32_t event_id, void *event_data)
 {
@@ -678,7 +598,7 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
 
 #if TCP_HOST_TYPE == 0
-    xTaskCreate(tcp_server_task, "tcp_server", 4096, (void*)AF_INET, 5, NULL);
+    xTaskCreate(tcp_server_task, "tcp_server", 7168, (void*)AF_INET, 5, NULL);
 #else
     xTaskCreate(start_test, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
 #endif
@@ -809,7 +729,7 @@ static void tcp_server_task(void *pvParameters)
     int keepInterval = KEEPALIVE_INTERVAL;
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr, dest_addr2;
-    char rx_buffer[300], rx_buffer2[300];
+    char rx_buffer[1600], rx_buffer2[1600];
     uint16_t server_packet_received_count = 0;
     uint16_t server_packet_sent_count = 0;
     //bool received_info_node1 = 0;
@@ -818,6 +738,8 @@ static void tcp_server_task(void *pvParameters)
     bool start_messaging2 = 0;
     int sock = 0;
     int sock2 = 0;
+    int buffer1_rx_sum = 0;
+    int buffer2_rx_sum = 0;
     uint16_t node_total_tx = 0;
     uint16_t node_total_rx = 0;
     uint16_t node2_total_tx = 0;
@@ -829,7 +751,7 @@ static void tcp_server_task(void *pvParameters)
 
 
 
-    for (int i = 0; i < 1400; i++) {
+    for (int i = 0; i < 120; i++) {
         msg[i] = 0xF7;  // fill packet with 1500 bytes
     }
 
@@ -859,9 +781,12 @@ static void tcp_server_task(void *pvParameters)
     }
 
     int opt = 1;
+    //int mss = 500;
 
     setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     setsockopt(listen_sock2, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    //setsockopt(listen_sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
+    //setsockopt(listen_sock2, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
 #if defined(CONFIG_EXAMPLE_IPV4) && defined(CONFIG_EXAMPLE_IPV6)
     // Note that by default IPV6 binds to both protocols, it is must be disabled
     // if both protocols used at the same time (used in CI)
@@ -937,6 +862,7 @@ static void tcp_server_task(void *pvParameters)
         	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
         	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
         	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
+    	//	    setsockopt(sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
         	    if (source_addr.ss_family == PF_INET) {
             	        inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
         	    }
@@ -959,6 +885,7 @@ static void tcp_server_task(void *pvParameters)
        		     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
         	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
        		     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
+    	//	     setsockopt(sock2, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
      	 	     if (source_addr2.ss_family == PF_INET) {
             		inet_ntoa_r(((struct sockaddr_in *)&source_addr2)->sin_addr, addr_str2, sizeof(addr_str2) - 1);
         	     }
@@ -1008,8 +935,12 @@ static void tcp_server_task(void *pvParameters)
                 	ESP_LOGI(TAG, "Received %d bytes", len);
                 	//ESP_LOGI(TAG, "%s", rx_buffer);
 			server_uplink_bytes = server_uplink_bytes + len;
+			buffer1_rx_sum = buffer1_rx_sum + len;
 			len = 0;
-			server_packet_received_count = server_packet_received_count + 1;
+			if (buffer1_rx_sum >= 1296){
+			    server_packet_received_count++;
+			    buffer1_rx_sum = 0;
+			}
 	    	    }
 		    if (start_messaging1){
 	    	    	// Send data
@@ -1032,17 +963,18 @@ static void tcp_server_task(void *pvParameters)
 		    }
 	    }
 	    if ((is_socket2_enabled != -1) && (message_arrived_socket2) && start_messaging2){
-            	     int len2 = recv(sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0);
-            	     // Error occurred during receiving
-            	     if (len2 < 0) {
+		   	int len2 = recv(sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0);
+            		// Error occurred during receiving
+            	        if (len2 < 0) {
                 	  ESP_LOGE(TAG, "recv failed: errno %d", errno);
 			  close(pfds[3].fd);
 			  pfds[3].fd = -1;
 			  start_messaging2 = 0;
 			  len2 = 0;
                 	  continue;
-            	     }
-	    	     else if (rx_buffer2[0] == 0xF3) {
+            	        }
+            		// Data received
+	    	        else if (rx_buffer2[0] == 0xF3) {
 			  ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
         	 	  //shutdown(sock2, 0);
         		  //close(sock2);
@@ -1050,26 +982,29 @@ static void tcp_server_task(void *pvParameters)
 			  pfds[3].fd = -1;
 			  start_messaging2 = 0;
 			  len2 = 0;
-	    	     }
-	    	     else if (rx_buffer2[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
+	    	        }
+	    	        else if (rx_buffer2[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
 			  ESP_LOGI(TAG, "Received data from mesh node with size: %d", len2);
 			  node2_total_tx = rx_buffer2[1] | (rx_buffer2[2] << 8);
 			  node2_total_rx = rx_buffer2[3] | (rx_buffer2[4] << 8);
-			  node2_downlink_traffic = rx_buffer[5] | (rx_buffer[6] << 8) | (rx_buffer[7] << 16) | (rx_buffer[8] << 24);
+			  node2_downlink_traffic = rx_buffer2[5] | (rx_buffer2[6] << 8) | (rx_buffer2[7] << 16) | (rx_buffer2[8] << 24);
 			  ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d. Total received downlink traffic to this node: %" PRIu32 ".", node2_total_tx, node2_total_rx, node2_downlink_traffic);
 			  close(pfds[3].fd);
 			  pfds[3].fd = -1;
 			  start_messaging2 = 0;
 			  len2 = 0;
-	    	     }
-            	     else {
-                	  rx_buffer2[len2] = 0; // Null-terminate whatever we received and treat like a string
-                	  ESP_LOGI(TAG, "Received %d bytes", len2);
-                	  //ESP_LOGI(TAG, "%s", rx_buffer);
-			  server_uplink2_bytes = server_uplink2_bytes + len2;
-			  len2 = 0;
-			  server_packet_received_count = server_packet_received_count + 1;
-	    	     }
+	    	        }
+			else{
+                	    rx_buffer2[len2] = 0; // Null-terminate whatever we received and treat like a string
+                	    ESP_LOGI(TAG, "Received %d bytes", len2);
+			    server_uplink2_bytes = server_uplink2_bytes + len2;
+			    buffer2_rx_sum = buffer2_rx_sum + len2;
+			    len2 = 0;
+			    if (buffer2_rx_sum >= 1296){
+			        server_packet_received_count++;
+				buffer2_rx_sum = 0;
+			    }
+	    	        }
 		     if (start_messaging2){
 	    	     	int rply = send(sock2, msg, sizeof(msg), 0);
 	    	     	if (rply < 0) {
@@ -1099,8 +1034,8 @@ CLEAN_UP:
 
 static void tcp_client_task(void *pvParameters)
 {
-    char rx_buffer[1510];
-    int buffersize = 3000;
+    char rx_buffer[130];
+    int buffersize = 200;
     char host_ip[] = "10.0.0.1";   //tcp server mesh addr
     int addr_family = 0;
     int ip_protocol = 0;	
@@ -1110,7 +1045,7 @@ static void tcp_client_task(void *pvParameters)
     bool info_sent = 0;
     payload[0] = 0x00;  //to make sure the first byte is not 0xFF
 
-    for (int i = 1; i < 120; i++) {
+    for (int i = 1; i < 1296; i++) {
         payload[i] = 0xF5;  // fill packet with 1500 bytes
     }
 
@@ -1138,7 +1073,9 @@ static void tcp_client_task(void *pvParameters)
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
             break;
         }
+	//int mss = 500;
         setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffersize, sizeof(int));
+    	//setsockopt(sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
         ESP_LOGI(TAG, "Socket created, connecting to %s:%d", host_ip, PORT);
 
         int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
@@ -1157,13 +1094,13 @@ static void tcp_client_task(void *pvParameters)
 	    else {
 	   	packet_sent_counter = packet_sent_counter + 1;
 		ESP_LOGI(TAG, "Message sent number: %d", packet_sent_counter);
-	   	if (packet_sent_counter >= 10){		//número de mensagens enviadas em uma sessão
+	   	if (packet_sent_counter >= 386){		//número de mensagens enviadas em uma sessão
 			messages_per_session_flag = 1;
 //		   	break;
 	   	}
 	    }
-	    int bytes_received_msg = 0;
-	    while (bytes_received_msg < 1400){
+	//    int bytes_received_msg = 0;
+	//    while (bytes_received_msg < 1400){
             int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
             // Error occurred during receiving
             if (len < 0) {
@@ -1176,13 +1113,13 @@ static void tcp_client_task(void *pvParameters)
                 ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
                 //ESP_LOGI(TAG, "%s", rx_buffer);
 		bytes_received = bytes_received + len;
-		bytes_received_msg = bytes_received_msg + len;
+	//	bytes_received_msg = bytes_received_msg + len;
 		len = 0;
-		if (bytes_received_msg >= 1400){
+		//if (bytes_received_msg >= 1400){
 		    packet_received_counter++;
-		}
+		//}
             }
-	    }
+	//    }
 
 	    if (messages_per_session_flag == 1){
 		    break;
@@ -1239,11 +1176,9 @@ static void tcp_client_task(void *pvParameters)
             //shutdown(sock, 0);
             //close(sock);
 	    shutdown(sock, SHUT_WR); 
-	    vTaskDelay(100 / portTICK_PERIOD_MS);  // Allow time for server to process
 	    close(sock);
-	    vTaskDelay(1000 / portTICK_PERIOD_MS); //time between sessions
+	    vTaskDelay(10000 / portTICK_PERIOD_MS); //time between sessions (idle time)
         }
-	vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
     }
 
     ESP_LOGE(TAG, "Timer limit reached. Shutting down socket and closing task..");
@@ -1374,10 +1309,4 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_mesh_start());
     ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%" PRId32 ", %s",  esp_get_free_heap_size(),
              esp_mesh_is_root_fixed() ? "root fixed" : "root not fixed");
-    /* ping session */
-//    initialize_ping();
-//    ESP_ERROR_CHECK(esp_mesh_ping_task_start());
-//#if CONFIG_MESH_NODE_ID == 2
-//    ESP_ERROR_CHECK(esp_mesh_set_parent());
-//#endif
 }
