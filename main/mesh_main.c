@@ -128,7 +128,7 @@ static bool initialise_timer(void) {
     }
 
     // Set up the alarm configuration
-    alarm_config.alarm_count = 120 * 1000 * 1000; // 120s
+    alarm_config.alarm_count = 12 * 1000 * 1000; // 120s
     alarm_config.reload_count = 0; // Start from 0
     alarm_config.flags.auto_reload_on_alarm = false; // No auto-reload
 
@@ -598,7 +598,7 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
 
 #if TCP_HOST_TYPE == 0
-    xTaskCreate(tcp_server_task, "tcp_server", 7168, (void*)AF_INET, 5, NULL);
+    xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET, 5, NULL);
 #else
     xTaskCreate(start_test, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
 #endif
@@ -729,11 +729,11 @@ static void tcp_server_task(void *pvParameters)
     int keepInterval = KEEPALIVE_INTERVAL;
     int keepCount = KEEPALIVE_COUNT;
     struct sockaddr_storage dest_addr, dest_addr2;
-    char rx_buffer[1600], rx_buffer2[1600];
+    char rx_buffer[2600], rx_buffer2[2600];
     uint16_t server_packet_received_count = 0;
     uint16_t server_packet_sent_count = 0;
-    //bool received_info_node1 = 0;
-    //bool received_info_node2 = 0;
+    bool packet_rx1 = 0;
+    bool packet_rx2 = 0;
     bool start_messaging1 = 0;
     bool start_messaging2 = 0;
     int sock = 0;
@@ -940,9 +940,10 @@ static void tcp_server_task(void *pvParameters)
 			if (buffer1_rx_sum >= 1296){
 			    server_packet_received_count++;
 			    buffer1_rx_sum = 0;
+			    packet_rx1 = 1;
 			}
 	    	    }
-		    if (start_messaging1){
+		    if (start_messaging1 && packet_rx1){
 	    	    	// Send data
 	    	    	int rply = send(sock, msg, sizeof(msg), 0);
 	    	    	if (rply < 0) {
@@ -954,11 +955,13 @@ static void tcp_server_task(void *pvParameters)
 				start_messaging1 = 0;
 		       		// break;
 				rply = 0;
+				packet_rx1 = 0;
 	    	    	}
 	    	    	else {
 		        	ESP_LOGI(TAG, "sent reply of %d bytes to host 1", rply);
 		        	server_packet_sent_count = server_packet_sent_count + 1;
 				rply = 0;
+				packet_rx1 = 0;
 	    	    	}
 		    }
 	    }
@@ -1003,9 +1006,10 @@ static void tcp_server_task(void *pvParameters)
 			    if (buffer2_rx_sum >= 1296){
 			        server_packet_received_count++;
 				buffer2_rx_sum = 0;
+				packet_rx2 = 1;
 			    }
 	    	        }
-		     if (start_messaging2){
+		     if (start_messaging2 && packet_rx2){
 	    	     	int rply = send(sock2, msg, sizeof(msg), 0);
 	    	     	if (rply < 0) {
 		             ESP_LOGE(TAG, "send failed: errno %d", errno);
@@ -1013,11 +1017,13 @@ static void tcp_server_task(void *pvParameters)
 			     pfds[3].fd = -1;
 			     start_messaging2 = 0;
 			     rply = 0;
+			     packet_rx2 = 0;
 	    	     	}
 	    	     	else {
 		         	ESP_LOGI(TAG, "sent reply of %d bytes to host 2", rply);
 		         	server_packet_sent_count = server_packet_sent_count + 1;
 				rply = 0;
+				packet_rx2 = 0;
 	    	     	}
 		     }
 	    }
