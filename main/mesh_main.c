@@ -73,7 +73,7 @@ static const char *TAG = "tcp_connection";
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
-static char payload[1296];
+static char payload[1000];
 static char msg[120];
 static bool is_running = true;
 static mesh_addr_t mesh_parent_addr;
@@ -128,7 +128,7 @@ static bool initialise_timer(void) {
     }
 
     // Set up the alarm configuration
-    alarm_config.alarm_count = 12 * 1000 * 1000; // 120s
+    alarm_config.alarm_count = 120 * 1000 * 1000; // 120s
     alarm_config.reload_count = 0; // Start from 0
     alarm_config.flags.auto_reload_on_alarm = false; // No auto-reload
 
@@ -767,13 +767,13 @@ static void tcp_server_task(void *pvParameters)
         dest_addr_ip4_2->sin_port = htons(SERVER_PORT2);
     }
 
-    int listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
+    int listen_sock = socket(addr_family, SOCK_DGRAM, ip_protocol);
     if (listen_sock < 0) {
         ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
         vTaskDelete(NULL);
         return;
     }
-    int listen_sock2 = socket(addr_family, SOCK_STREAM, ip_protocol);
+    int listen_sock2 = socket(addr_family, SOCK_DGRAM, ip_protocol);
     if (listen_sock2 < 0) {
         ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
         vTaskDelete(NULL);
@@ -846,11 +846,15 @@ static void tcp_server_task(void *pvParameters)
 	else {
 	    int pollin_happened_socket1 = pfds[0].revents & POLLIN;
 	    int pollin_happened_socket2 = pfds[1].revents & POLLIN;
+            struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
+            socklen_t addr_len = sizeof(source_addr);
+            struct sockaddr_storage source_addr2; // Large enough for both IPv4 or IPv6
+            socklen_t addr_len2 = sizeof(source_addr2);
 
             if (pollin_happened_socket1) {
 		if (!start_messaging1){
-                    struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
-        	    socklen_t addr_len = sizeof(source_addr);
+                  //  struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
+        	  //  socklen_t addr_len = sizeof(source_addr);
         	    sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
         	    if (sock < 0){
     		        ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
@@ -858,10 +862,10 @@ static void tcp_server_task(void *pvParameters)
          	    }
 		    pfds[2].fd = sock;
 		    pfds[2].events = POLLIN;
-        	    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
-        	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
-        	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
-        	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
+        //	    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
+        //	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
+        //	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
+        //	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
     	//	    setsockopt(sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
         	    if (source_addr.ss_family == PF_INET) {
             	        inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
@@ -872,8 +876,8 @@ static void tcp_server_task(void *pvParameters)
             } 
 	    if (pollin_happened_socket2){
 	         if (!start_messaging2){
-                     struct sockaddr_storage source_addr2; // Large enough for both IPv4 or IPv6
-        	     socklen_t addr_len2 = sizeof(source_addr2);
+           //          struct sockaddr_storage source_addr2; // Large enough for both IPv4 or IPv6
+        //	     socklen_t addr_len2 = sizeof(source_addr2);
         	     sock2 = accept(listen_sock2, (struct sockaddr *)&source_addr2, &addr_len2);
         	     if (sock2 < 0){
     		         ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
@@ -881,10 +885,10 @@ static void tcp_server_task(void *pvParameters)
          	     }
 		     pfds[3].fd = sock2;
 		     pfds[3].events = POLLIN;
-     		     setsockopt(sock2, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
-       		     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
-        	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
-       		     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
+     	//	     setsockopt(sock2, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
+       	//	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
+        //	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
+       	//	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
     	//	     setsockopt(sock2, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
      	 	     if (source_addr2.ss_family == PF_INET) {
             		inet_ntoa_r(((struct sockaddr_in *)&source_addr2)->sin_addr, addr_str2, sizeof(addr_str2) - 1);
@@ -898,7 +902,7 @@ static void tcp_server_task(void *pvParameters)
 	    int message_arrived_socket1 = pfds[2].revents & POLLIN;
 	    int message_arrived_socket2 = pfds[3].revents & POLLIN;
 	    if ((is_socket1_enabled != -1) && (message_arrived_socket1) && start_messaging1){
-            	    int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+            	    int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &addr_len);
             	    // Error occurred during receiving
             	    if (len <= 0) {
                 	ESP_LOGE(TAG, "recv failed: errno %d", errno);
@@ -908,15 +912,15 @@ static void tcp_server_task(void *pvParameters)
 			len = 0;
                 	continue;
             	    }
-	    	    else if (rx_buffer[0] == 0xF3) {
-			ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
-			close(pfds[2].fd);
-        		pfds[2].fd = -1;
+	    	//    else if (rx_buffer[0] == 0xF3) {
+		//	ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
+		//	close(pfds[2].fd);
+        	//	pfds[2].fd = -1;
         		//shutdown(sock, 0);
         		//close(sock);
-			start_messaging1 = 0;
-			len = 0;
-	    	    }
+		//	start_messaging1 = 0;
+		//	len = 0;
+	    	//    }
 	    	    else if (rx_buffer[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
 			ESP_LOGI(TAG, "Received data from mesh node with size: %d", len);
 			node_total_tx = rx_buffer[1] | (rx_buffer[2] << 8);
@@ -937,7 +941,7 @@ static void tcp_server_task(void *pvParameters)
 			server_uplink_bytes = server_uplink_bytes + len;
 			buffer1_rx_sum = buffer1_rx_sum + len;
 			len = 0;
-			if (buffer1_rx_sum >= 1296){
+			if (buffer1_rx_sum >= 1000){
 			    server_packet_received_count++;
 			    buffer1_rx_sum = 0;
 			    packet_rx1 = 1;
@@ -945,7 +949,7 @@ static void tcp_server_task(void *pvParameters)
 	    	    }
 		    if (start_messaging1 && packet_rx1){
 	    	    	// Send data
-	    	    	int rply = send(sock, msg, sizeof(msg), 0);
+	    	    	int rply = sendto(sock, msg, sizeof(msg), 0, (struct sockaddr *)&source_addr, &addr_len);
 	    	    	if (rply < 0) {
 		        	ESP_LOGE(TAG, "send failed: errno %d", errno);
 				close(pfds[2].fd);
@@ -966,7 +970,7 @@ static void tcp_server_task(void *pvParameters)
 		    }
 	    }
 	    if ((is_socket2_enabled != -1) && (message_arrived_socket2) && start_messaging2){
-		   	int len2 = recv(sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0);
+		   	int len2 = recvfrom(sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0, (struct sockaddr *)&source_addr2, &addr_len2);
             		// Error occurred during receiving
             	        if (len2 < 0) {
                 	  ESP_LOGE(TAG, "recv failed: errno %d", errno);
@@ -977,15 +981,15 @@ static void tcp_server_task(void *pvParameters)
                 	  continue;
             	        }
             		// Data received
-	    	        else if (rx_buffer2[0] == 0xF3) {
-			  ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
+	    	//        else if (rx_buffer2[0] == 0xF3) {
+		//	  ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
         	 	  //shutdown(sock2, 0);
         		  //close(sock2);
-			  close(pfds[3].fd);
-			  pfds[3].fd = -1;
-			  start_messaging2 = 0;
-			  len2 = 0;
-	    	        }
+		//	  close(pfds[3].fd);
+		//	  pfds[3].fd = -1;
+		//	  start_messaging2 = 0;
+		//	  len2 = 0;
+	    	  //      }
 	    	        else if (rx_buffer2[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
 			  ESP_LOGI(TAG, "Received data from mesh node with size: %d", len2);
 			  node2_total_tx = rx_buffer2[1] | (rx_buffer2[2] << 8);
@@ -1003,14 +1007,14 @@ static void tcp_server_task(void *pvParameters)
 			    server_uplink2_bytes = server_uplink2_bytes + len2;
 			    buffer2_rx_sum = buffer2_rx_sum + len2;
 			    len2 = 0;
-			    if (buffer2_rx_sum >= 1296){
+			    if (buffer2_rx_sum >= 1000){
 			        server_packet_received_count++;
 				buffer2_rx_sum = 0;
 				packet_rx2 = 1;
 			    }
 	    	        }
 		     if (start_messaging2 && packet_rx2){
-	    	     	int rply = send(sock2, msg, sizeof(msg), 0);
+	    	     	int rply = sendto(sock2, msg, sizeof(msg), 0, (struct sockaddr *)&source_addr2, &addr_len2);
 	    	     	if (rply < 0) {
 		             ESP_LOGE(TAG, "send failed: errno %d", errno);
 			     close(pfds[3].fd);
@@ -1051,13 +1055,13 @@ static void tcp_client_task(void *pvParameters)
     bool info_sent = 0;
     payload[0] = 0x00;  //to make sure the first byte is not 0xFF
 
-    for (int i = 1; i < 1296; i++) {
+    for (int i = 1; i < 1000; i++) {
         payload[i] = 0xF5;  // fill packet with 1500 bytes
     }
 
     initialise_timer();
 
-    while (!(test_time_max && info_sent)) {
+    //while (!(test_time_max && info_sent)) {
 #if defined(CONFIG_EXAMPLE_IPV4)
         struct sockaddr_in dest_addr;
         inet_pton(AF_INET, host_ip, &dest_addr.sin_addr);
@@ -1067,32 +1071,32 @@ static void tcp_client_task(void *pvParameters)
         ip_protocol = IPPROTO_IP;
 #elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
         struct sockaddr_storage dest_addr = { 0 };
-        ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_STREAM, &ip_protocol, &addr_family, &dest_addr));
+        ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_DGRAM, &ip_protocol, &addr_family, &dest_addr));
 #endif
         bool messages_per_session_flag = 0;
         uint16_t packet_sent_counter = 0;
         uint16_t packet_received_counter = 0;
 	uint16_t bytes_received = 0;
 	unsigned char info_payload[9];	
-        int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
+        int sock =  socket(addr_family, SOCK_DGRAM, ip_protocol);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
-            break;
+            //break;
         }
 	//int mss = 500;
-        setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffersize, sizeof(int));
+        //setsockopt(sock, SOL_SOCKET, SO_RCVBUF, &buffersize, sizeof(int));
     	//setsockopt(sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
-        ESP_LOGI(TAG, "Socket created, connecting to %s:%d", host_ip, PORT);
+        //ESP_LOGI(TAG, "Socket created, connecting to %s:%d", host_ip, PORT);
 
-        int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
-        if (err != 0) {
-            ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
-            break;
-        }
-        ESP_LOGI(TAG, "Successfully connected");
+        //int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        //if (err != 0) {
+        //    ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
+        //    break;
+        //}
+        //ESP_LOGI(TAG, "Successfully connected");
 
         while (1) {
-            int err = send(sock, payload, sizeof(payload), 0);
+            int err = sendto(sock, payload, sizeof(payload), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
             if (err < 0) {
                 ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                 break;
@@ -1100,14 +1104,14 @@ static void tcp_client_task(void *pvParameters)
 	    else {
 	   	packet_sent_counter = packet_sent_counter + 1;
 		ESP_LOGI(TAG, "Message sent number: %d", packet_sent_counter);
-	   	if (packet_sent_counter >= 386){		//número de mensagens enviadas em uma sessão
-			messages_per_session_flag = 1;
+	  // 	if (packet_sent_counter >= 386){		//número de mensagens enviadas em uma sessão
+	//		messages_per_session_flag = 1;
 //		   	break;
-	   	}
+	  // 	}
 	    }
 	//    int bytes_received_msg = 0;
 	//    while (bytes_received_msg < 1400){
-            int len = recv(sock, rx_buffer, sizeof(rx_buffer) - 1, 0);
+            int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
             // Error occurred during receiving
             if (len < 0) {
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
@@ -1125,16 +1129,6 @@ static void tcp_client_task(void *pvParameters)
 		    packet_received_counter++;
 		//}
             }
-	//    }
-
-	    if (messages_per_session_flag == 1){
-		    break;
-	    }
-	    else {
-	   	vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
-	    }
-        }
-
    	total_packet_sent = total_packet_sent + packet_sent_counter;
     	total_packet_received = total_packet_received + packet_received_counter;
 	total_bytes_received = total_bytes_received + bytes_received;
@@ -1155,16 +1149,21 @@ static void tcp_client_task(void *pvParameters)
     	    info_payload[8] = (total_bytes_received >> 24) & 0xFF;  // High byte
 
 
-    	    int inf = send(sock, info_payload, sizeof(info_payload), 0);
+    	    int inf = sendto(sock, info_payload, sizeof(info_payload), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
     	    if (inf < 0) {
         	ESP_LOGE(TAG, "Error occurred during sending of info to root: errno %d", errno);
     	    }
     	    else {
 		ESP_LOGI(TAG, "Sent test info to root");
-		info_sent = 1;
+		break;
+		//info_sent = 1;
     	    }
 	}
-	else {
+	   	vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
+	    
+        }
+
+	/*else {
 	    info_payload[0] = 0xF3;
     	    int stop = send(sock, info_payload, sizeof(info_payload), 0);
     	    if (stop < 0) {
@@ -1175,17 +1174,17 @@ static void tcp_client_task(void *pvParameters)
 		//close(sock);
     	    }
 
-	}
+	}*/
 
-        if (messages_per_session_flag == 1 || !test_time_max) {
-            ESP_LOGE(TAG, "Shutting down socket and restarting...");
+        //if (messages_per_session_flag == 1 || !test_time_max) {
+        //    ESP_LOGE(TAG, "Shutting down socket and restarting...");
             //shutdown(sock, 0);
             //close(sock);
-	    shutdown(sock, SHUT_WR); 
-	    close(sock);
-	    vTaskDelay(10000 / portTICK_PERIOD_MS); //time between sessions (idle time)
-        }
-    }
+	//    shutdown(sock, SHUT_WR); 
+	//    close(sock);
+	//    vTaskDelay(10000 / portTICK_PERIOD_MS); //time between sessions (idle time)
+        //}
+    //}
 
     ESP_LOGE(TAG, "Timer limit reached. Shutting down socket and closing task..");
     //shutdown(sock, 0);
