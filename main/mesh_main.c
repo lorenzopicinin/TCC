@@ -872,7 +872,7 @@ static void tcp_server_task(void *pvParameters)
         		pfds[2].fd = -1;
         		//shutdown(sock, 0);
         		//close(sock);
-			start_messaging1 = 0;
+			start_messaging1 = 1;
 			len = 0;
 	    	    }
             	    else {
@@ -909,7 +909,7 @@ static void tcp_server_task(void *pvParameters)
 	    	    	}
             } 
 	    if (pollin_happened_socket2){
-		   	int len2 = recvfrom(sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0, (struct sockaddr *)&source_addr2, &addr_len2);
+		   	int len2 = recvfrom(listen_sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0, (struct sockaddr *)&source_addr2, &addr_len2);
             		// Error occurred during receiving
             	        if (len2 < 0) {
                 	  ESP_LOGE(TAG, "recv failed: errno %d", errno);
@@ -927,7 +927,7 @@ static void tcp_server_task(void *pvParameters)
 			  ESP_LOGI(TAG, "Mesh node total sent: %d, and total received: %d. Total received downlink traffic to this node: %" PRIu32 ".", node2_total_tx, node2_total_rx, node2_downlink_traffic);
 			  close(pfds[3].fd);
 			  pfds[3].fd = -1;
-			  start_messaging2 = 0;
+			  start_messaging2 = 1;
 			  len2 = 0;
 	    	        }
 			else{
@@ -957,6 +957,9 @@ static void tcp_server_task(void *pvParameters)
 				rply = 0;
 				packet_rx2 = 0;
 	    	     	}
+			if (start_messaging1 && start_messaging2){
+				goto CLEAN_UP;
+			}
 	    	    }
 	    
 	    }
