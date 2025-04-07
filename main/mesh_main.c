@@ -812,7 +812,7 @@ static void tcp_server_task(void *pvParameters)
     }
     ESP_LOGI(TAG, "Socket bound, port %d", SERVER_PORT2);
 
-    err = listen(listen_sock, 1);
+    /*err = listen(listen_sock, 1);
     if (err != 0) {
         ESP_LOGE(TAG, "Error occurred during listen: errno %d", errno);
         goto CLEAN_UP;
@@ -825,17 +825,17 @@ static void tcp_server_task(void *pvParameters)
     }
     
     ESP_LOGI(TAG, "Sockets listening");
-    
+    */
     struct pollfd pfds[4];
     pfds[0].fd = listen_sock;          // Standard input
     pfds[0].events = POLLIN; // Tell me when ready to read
     pfds[1].fd = listen_sock2;          // Standard input
     pfds[1].events = POLLIN; // Tell me when ready to read
-    pfds[2].fd = -1;
-    pfds[3].fd = -1;
+    //pfds[2].fd = -1;
+    //pfds[3].fd = -1;
 
     while (1) {
-        int num_events = poll(pfds, 4, 60000);
+        int num_events = poll(pfds, 2, 60000);
 	ESP_LOGI(TAG, "Event loop starts!!!");	
 
 	if (num_events <= 0){
@@ -852,57 +852,7 @@ static void tcp_server_task(void *pvParameters)
             socklen_t addr_len2 = sizeof(source_addr2);
 
             if (pollin_happened_socket1) {
-		if (!start_messaging1){
-                  //  struct sockaddr_storage source_addr; // Large enough for both IPv4 or IPv6
-        	  //  socklen_t addr_len = sizeof(source_addr);
-        	    sock = accept(listen_sock, (struct sockaddr *)&source_addr, &addr_len);
-        	    if (sock < 0){
-    		        ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
-            	        break;
-         	    }
-		    pfds[2].fd = sock;
-		    pfds[2].events = POLLIN;
-        //	    setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
-        //	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
-        //	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
-        //	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
-    	//	    setsockopt(sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
-        	    if (source_addr.ss_family == PF_INET) {
-            	        inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
-        	    }
-        	    ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
-		    start_messaging1 = 1;
-		}
-            } 
-	    if (pollin_happened_socket2){
-	         if (!start_messaging2){
-           //          struct sockaddr_storage source_addr2; // Large enough for both IPv4 or IPv6
-        //	     socklen_t addr_len2 = sizeof(source_addr2);
-        	     sock2 = accept(listen_sock2, (struct sockaddr *)&source_addr2, &addr_len2);
-        	     if (sock2 < 0){
-    		         ESP_LOGE(TAG, "Unable to accept connection: errno %d", errno);
-            	         break;
-         	     }
-		     pfds[3].fd = sock2;
-		     pfds[3].events = POLLIN;
-     	//	     setsockopt(sock2, SOL_SOCKET, SO_KEEPALIVE, &keepAlive, sizeof(int));
-       	//	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
-        //	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
-       	//	     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
-    	//	     setsockopt(sock2, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
-     	 	     if (source_addr2.ss_family == PF_INET) {
-            		inet_ntoa_r(((struct sockaddr_in *)&source_addr2)->sin_addr, addr_str2, sizeof(addr_str2) - 1);
-        	     }
-        	     ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str2);
-		     start_messaging2 = 1;
-		 }
-            }
-	    int is_socket1_enabled = pfds[2].fd;
-	    int is_socket2_enabled = pfds[3].fd;
-	    int message_arrived_socket1 = pfds[2].revents & POLLIN;
-	    int message_arrived_socket2 = pfds[3].revents & POLLIN;
-	    if ((is_socket1_enabled != -1) && (message_arrived_socket1) && start_messaging1){
-            	    int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &addr_len);
+            	    int len = recvfrom(listen_sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&source_addr, &addr_len);
             	    // Error occurred during receiving
             	    if (len <= 0) {
                 	ESP_LOGE(TAG, "recv failed: errno %d", errno);
@@ -912,15 +862,6 @@ static void tcp_server_task(void *pvParameters)
 			len = 0;
                 	continue;
             	    }
-	    	//    else if (rx_buffer[0] == 0xF3) {
-		//	ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
-		//	close(pfds[2].fd);
-        	//	pfds[2].fd = -1;
-        		//shutdown(sock, 0);
-        		//close(sock);
-		//	start_messaging1 = 0;
-		//	len = 0;
-	    	//    }
 	    	    else if (rx_buffer[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
 			ESP_LOGI(TAG, "Received data from mesh node with size: %d", len);
 			node_total_tx = rx_buffer[1] | (rx_buffer[2] << 8);
@@ -941,15 +882,14 @@ static void tcp_server_task(void *pvParameters)
 			server_uplink_bytes = server_uplink_bytes + len;
 			buffer1_rx_sum = buffer1_rx_sum + len;
 			len = 0;
-			if (buffer1_rx_sum >= 1000){
+			//if (buffer1_rx_sum >= 1000){
 			    server_packet_received_count++;
 			    buffer1_rx_sum = 0;
 			    packet_rx1 = 1;
-			}
-	    	    }
-		    if (start_messaging1 && packet_rx1){
+			//}
+		    }
 	    	    	// Send data
-	    	    	int rply = sendto(sock, msg, sizeof(msg), 0, (struct sockaddr *)&source_addr, &addr_len);
+	    	    	int rply = sendto(listen_sock, msg, sizeof(msg), 0, (struct sockaddr *)&source_addr, addr_len);
 	    	    	if (rply < 0) {
 		        	ESP_LOGE(TAG, "send failed: errno %d", errno);
 				close(pfds[2].fd);
@@ -967,9 +907,8 @@ static void tcp_server_task(void *pvParameters)
 				rply = 0;
 				packet_rx1 = 0;
 	    	    	}
-		    }
-	    }
-	    if ((is_socket2_enabled != -1) && (message_arrived_socket2) && start_messaging2){
+            } 
+	    if (pollin_happened_socket2){
 		   	int len2 = recvfrom(sock2, rx_buffer2, sizeof(rx_buffer2) - 1, 0, (struct sockaddr *)&source_addr2, &addr_len2);
             		// Error occurred during receiving
             	        if (len2 < 0) {
@@ -980,16 +919,6 @@ static void tcp_server_task(void *pvParameters)
 			  len2 = 0;
                 	  continue;
             	        }
-            		// Data received
-	    	//        else if (rx_buffer2[0] == 0xF3) {
-		//	  ESP_LOGI(TAG, "Received end session flag. Restarting session ...");
-        	 	  //shutdown(sock2, 0);
-        		  //close(sock2);
-		//	  close(pfds[3].fd);
-		//	  pfds[3].fd = -1;
-		//	  start_messaging2 = 0;
-		//	  len2 = 0;
-	    	  //      }
 	    	        else if (rx_buffer2[0] == 0xFF) {    //if first byte is 0xFF, this is the info packet
 			  ESP_LOGI(TAG, "Received data from mesh node with size: %d", len2);
 			  node2_total_tx = rx_buffer2[1] | (rx_buffer2[2] << 8);
@@ -1012,9 +941,8 @@ static void tcp_server_task(void *pvParameters)
 				buffer2_rx_sum = 0;
 				packet_rx2 = 1;
 			    }
-	    	        }
-		     if (start_messaging2 && packet_rx2){
-	    	     	int rply = sendto(sock2, msg, sizeof(msg), 0, (struct sockaddr *)&source_addr2, &addr_len2);
+            		}
+	    	     	int rply = sendto(listen_sock2, msg, sizeof(msg), 0, (struct sockaddr *)&source_addr2, addr_len2);
 	    	     	if (rply < 0) {
 		             ESP_LOGE(TAG, "send failed: errno %d", errno);
 			     close(pfds[3].fd);
@@ -1029,10 +957,11 @@ static void tcp_server_task(void *pvParameters)
 				rply = 0;
 				packet_rx2 = 0;
 	    	     	}
-		     }
+	    	    }
+	    
 	    }
         }
-    }
+    
 
 CLEAN_UP:
     ESP_LOGI(TAG, "Total packets sent from server: %d, and received: %d.", server_packet_sent_count, server_packet_received_count); 
@@ -1073,6 +1002,7 @@ static void tcp_client_task(void *pvParameters)
         struct sockaddr_storage dest_addr = { 0 };
         ESP_ERROR_CHECK(get_addr_from_stdin(PORT, SOCK_DGRAM, &ip_protocol, &addr_family, &dest_addr));
 #endif
+        socklen_t addr_len = sizeof(dest_addr);
         bool messages_per_session_flag = 0;
         uint16_t packet_sent_counter = 0;
         uint16_t packet_received_counter = 0;
@@ -1096,7 +1026,7 @@ static void tcp_client_task(void *pvParameters)
         //ESP_LOGI(TAG, "Successfully connected");
 
         while (1) {
-            int err = sendto(sock, payload, sizeof(payload), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+            int err = sendto(sock, payload, sizeof(payload), 0, (struct sockaddr *)&dest_addr, addr_len);
             if (err < 0) {
                 ESP_LOGE(TAG, "Error occurred during sending: errno %d", errno);
                 break;
@@ -1111,7 +1041,7 @@ static void tcp_client_task(void *pvParameters)
 	    }
 	//    int bytes_received_msg = 0;
 	//    while (bytes_received_msg < 1400){
-            int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+            int len = recvfrom(sock, rx_buffer, sizeof(rx_buffer) - 1, 0, (struct sockaddr *)&dest_addr, &addr_len);
             // Error occurred during receiving
             if (len < 0) {
                 ESP_LOGE(TAG, "recv failed: errno %d", errno);
@@ -1149,7 +1079,7 @@ static void tcp_client_task(void *pvParameters)
     	    info_payload[8] = (total_bytes_received >> 24) & 0xFF;  // High byte
 
 
-    	    int inf = sendto(sock, info_payload, sizeof(info_payload), 0, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+    	    int inf = sendto(sock, info_payload, sizeof(info_payload), 0, (struct sockaddr *)&dest_addr, addr_len);
     	    if (inf < 0) {
         	ESP_LOGE(TAG, "Error occurred during sending of info to root: errno %d", errno);
     	    }
