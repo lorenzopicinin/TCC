@@ -438,7 +438,6 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
 	esp_netif_dhcps_stop(netif_ap);
 	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
         start_mesh_link_ap();
-        ip_napt_enable(ap_interface_ip.ip.addr, 1);
     }
     return ESP_OK;
 }
