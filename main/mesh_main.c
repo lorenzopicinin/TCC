@@ -84,6 +84,7 @@ static int s_route_table_size = 0;
 static SemaphoreHandle_t s_route_table_lock = NULL;
 static uint8_t s_mesh_tx_payload[CONFIG_MESH_ROUTE_TABLE_SIZE*6+1];
 static esp_netif_ip_info_t interface_ip_info = {0};   
+static esp_netif_ip6_info_t interface_ip6_info = {0};   
 static esp_ping_handle_t ping;
 static bool test_time_max = 0;
 static gptimer_handle_t gptimer = NULL;
@@ -596,6 +597,9 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
   //  esp_mesh_comm_mqtt_task_start();
     esp_netif_get_ip_info(netif_ap, &interface_ip_info);
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
+    int num_ip6 = esp_netif_get_all_ip6(netif_ap, &interface_ip6_info.ip);
+    ESP_LOGI(MESH_TAG, "NUMBER OF AP INTERFACE IP6 ADRESSES: %d", num_ip6);
+    ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP6 ADDRESS: "IP6STR"", IPV62STR(interface_ip6_info.ip));
 
 #if TCP_HOST_TYPE == 0
     xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET, 5, NULL);
