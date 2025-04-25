@@ -46,6 +46,16 @@ const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
         .gw = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
 };
+const esp_netif_ip6_info_t ap_interface_ip6 = {
+	.ip = { .addr = {0x2000, 0xF, 0xF, 0x1},
+		.zone = 0,
+	}
+};
+const esp_netif_ip6_info_t sta_interface_ip6 = {
+	.ip = { .addr = {0x200E, 0xF, 0xF, 0x1},
+		.zone = 0,
+	}
+};
 
 #elif CONFIG_MESH_NODE_ID == 1
 const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
@@ -53,10 +63,20 @@ const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
         .gw = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
 };
+const esp_netif_ip6_info_t sta_interface_ip6 = {
+	.ip = { .addr = {0x2000, 0xF, 0xF, 0x2},
+		.zone = 0,
+	}
+};
 const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
         .ip = { .addr = ESP_IP4TOADDR( 10, 0, 1, 1) },
         .gw = { .addr = ESP_IP4TOADDR( 10, 0, 1, 1) },
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
+};
+const esp_netif_ip6_info_t ap_interface_ip6 = {
+	.ip = { .addr = {0x2000, 0xF, 0xF, 0x11},
+		.zone = 0,
+	}
 };
 #else
 const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
@@ -438,6 +458,7 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
 	esp_netif_dhcps_stop(netif_ap);
 	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
         start_mesh_link_ap();
+	esp_netif_add_ip6_address(netif_ap, ap_interface_ip6.ip, 0);
     }
     return ESP_OK;
 }

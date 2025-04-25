@@ -70,6 +70,11 @@ static const int SERVER_PORT2 = 3369;
 static const int SIG_PORT = 3339;
 static const int SIG_PORT2 = 3342;
 static const char *TAG = "tcp_connection";
+const esp_netif_ip6_info_t bs_ip6 = {
+	.ip = { .addr = {0x2000,0xFE,0xF,0x3333},
+		.zone = 0,
+	},
+};
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
@@ -588,6 +593,7 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     s_current_ip.addr = event->ip_info.ip.addr;
     esp_netif_get_ip_info(netif_sta, &interface_ip_info);
     ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
+    esp_netif_add_ip6_address(netif_sta, bs_ip6.ip, 0);
 #if !CONFIG_MESH_USE_GLOBAL_DNS_IP
     esp_netif_t *netif = event->esp_netif;
     esp_netif_dns_info_t dns;
@@ -599,7 +605,10 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
     int num_ip6 = esp_netif_get_all_ip6(netif_ap, &interface_ip6_info.ip);
     ESP_LOGI(MESH_TAG, "NUMBER OF AP INTERFACE IP6 ADRESSES: %d", num_ip6);
-    ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP6 ADDRESS: "IP6STR"", IPV62STR(interface_ip6_info.ip));
+    ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
+    num_ip6 = esp_netif_get_all_ip6(netif_sta, &interface_ip6_info.ip);
+    ESP_LOGI(MESH_TAG, "NUMBER OF STA INTERFACE IP6 ADRESSES: %d", num_ip6);
+    ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
 
 #if TCP_HOST_TYPE == 0
     xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET, 5, NULL);
@@ -658,7 +667,7 @@ esp_err_t initialize_ping(void)
 {
     /* convert URL to IP address */
     ip_addr_t target_addr;
-    esp_ip4_addr_t gw_addr;
+    esp_ip6_addr_t gw_addr;
     /*struct addrinfo hint;
     struct addrinfo *res = NULL;
     memset(&hint, 0, sizeof(hint));
@@ -671,11 +680,10 @@ esp_err_t initialize_ping(void)
 #if CONFIG_MESH_NODE_ID == 0
     esp_netif_str_to_ip4("10.0.1.5", &gw_addr);
 #else
-    esp_netif_str_to_ip4("10.0.0.1", &gw_addr);
+    esp_netif_str_to_ip6("0020:0000:0f00:0000:0f00:0000:0100:0000", &gw_addr);
 #endif
-
-    memcpy((char *)&target_addr.u_addr.ip4, (char *)&gw_addr, sizeof(gw_addr));
-    target_addr.type = IPADDR_TYPE_V4;
+    memcpy((char *)&target_addr.u_addr.ip6, (char *)&gw_addr, sizeof(gw_addr));
+    target_addr.type = IPADDR_TYPE_V6;
 
     esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
     ping_config.target_addr = target_addr;          // target IP address
