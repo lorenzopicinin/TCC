@@ -235,7 +235,7 @@ static void check_test_button(void *pvParameters)
 
     signal[0] = 0x10;
 
-    if (addr_family == AF_INET) {
+   /* if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
         dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
         dest_addr_ip4->sin_family = AF_INET;
@@ -245,15 +245,24 @@ static void check_test_button(void *pvParameters)
         dest_addr_ip4_2->sin_addr.s_addr = htonl(INADDR_ANY);
         dest_addr_ip4_2->sin_family = AF_INET;
         dest_addr_ip4_2->sin_port = htons(SIG_PORT2);
-    }
+    }*/
+    struct sockaddr_in6 *dest_addr_ip6 = (struct sockaddr_in6 *)&dest_addr;
+    dest_addr_ip6->sin6_family = AF_INET6;
+    dest_addr_ip6->sin6_port = htons(SIG_PORT);
+    dest_addr_ip6->sin6_addr = in6addr_any;
+    struct sockaddr_in6 *dest_addr_ip6_2 = (struct sockaddr_in6 *)&dest_addr2;
+    dest_addr_ip6_2->sin6_family = AF_INET6;
+    dest_addr_ip6_2->sin6_port = htons(SIG_PORT2);
+    dest_addr_ip6_2->sin6_addr = in6addr_any;
+    ip_protocol = IPPROTO_IP;
 
-    int listen_sock = socket(addr_family, SOCK_STREAM, ip_protocol);
+    int listen_sock = socket(PF_INET6, SOCK_STREAM, ip_protocol);
     if (listen_sock < 0) {
         ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
         vTaskDelete(NULL);
         return;
     }
-    int listen_sock2 = socket(addr_family, SOCK_STREAM, ip_protocol);
+    int listen_sock2 = socket(PF_INET6, SOCK_STREAM, ip_protocol);
     if (listen_sock2 < 0) {
         ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
         vTaskDelete(NULL);
