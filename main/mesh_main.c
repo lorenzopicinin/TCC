@@ -75,6 +75,12 @@ const esp_netif_ip6_info_t bs_ip6 = {
 		.zone = 0,
 	},
 };
+const esp_netif_ip_info_t ap_interface_ip4 = {        // mesh subnet IP info
+        .ip = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
+        .gw = { .addr = ESP_IP4TOADDR( 10, 0, 0, 1) },
+        .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
+};
+
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
@@ -226,16 +232,70 @@ static void check_test_button(void *pvParameters)
     int keepIdle = KEEPALIVE_IDLE;
     int keepInterval = KEEPALIVE_INTERVAL;
     int keepCount = KEEPALIVE_COUNT;
-    struct sockaddr_storage dest_addr, dest_addr2;
+    //struct sockaddr_storage dest_addr, dest_addr2;
     initialise_test_button();
     int sock = 0;
     int sock2 = 0;
     bool listen1ready = 0;
     bool listen2ready = 0;
-
+    char por1[10];
+    char por2[10];
     signal[0] = 0x10;
 
-   /* if (addr_family == AF_INET) {
+    struct addrinfo hints, hints2, *res, *res2;
+
+    // first, load up address structs with getaddrinfo():
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET6;  // use IPv4 or IPv6, whichever
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+    memset(&hints2, 0, sizeof hints2);
+    hints2.ai_family = AF_INET6;  // use IPv4 or IPv6, whichever
+    hints2.ai_socktype = SOCK_STREAM;
+    hints2.ai_flags = AI_PASSIVE;     // fill in my IP for me
+
+    sprintf(por1, "%d", SIG_PORT);
+    sprintf(por2, "%d", SIG_PORT2);
+
+    getaddrinfo(NULL, por1, &hints, &res);
+    getaddrinfo(NULL, por2, &hints2, &res2);
+
+    // make a socket:
+
+    int listen_sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (listen_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+    int listen_sock2 = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+    if (listen_sock2 < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Signaling sockets created");
+    // bind it to the port we passed in to getaddrinfo():
+
+    int err = bind(listen_sock, res->ai_addr, res->ai_addrlen);
+    if (err != 0) {
+        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
+        goto CLEAN_UP;
+    }
+    ESP_LOGI(TAG, "Socket bound, port %d", SIG_PORT);
+   
+    err = bind(listen_sock2, res2->ai_addr, res2->ai_addrlen);
+    if (err != 0) {
+        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
+        goto CLEAN_UP;
+    }
+    ESP_LOGI(TAG, "Socket bound, port %d", SIG_PORT2);
+
+    /* if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
         dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
         dest_addr_ip4->sin_family = AF_INET;
@@ -246,7 +306,7 @@ static void check_test_button(void *pvParameters)
         dest_addr_ip4_2->sin_family = AF_INET;
         dest_addr_ip4_2->sin_port = htons(SIG_PORT2);
     }*/
-    struct sockaddr_in6 *dest_addr_ip6 = (struct sockaddr_in6 *)&dest_addr;
+  /*  struct sockaddr_in6 *dest_addr_ip6 = (struct sockaddr_in6 *)&dest_addr;
     dest_addr_ip6->sin6_family = AF_INET6;
     dest_addr_ip6->sin6_port = htons(SIG_PORT);
     dest_addr_ip6->sin6_addr = in6addr_any;
@@ -294,7 +354,7 @@ static void check_test_button(void *pvParameters)
         goto CLEAN_UP;
     }
     ESP_LOGI(TAG, "Socket bound, port %d", SIG_PORT2);
-
+*/
     err = listen(listen_sock, 1);
     if (err != 0) {
         ESP_LOGE(TAG, "Error occurred during listen: errno %d", errno);
@@ -338,9 +398,20 @@ static void check_test_button(void *pvParameters)
         	 setsockopt(sock, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
         	 setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
         	 // Convert ip address to string
-        	 if (source_addr.ss_family == PF_INET) {
-            		inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
-        	 }
+		 //if (source_addr.ss_family == PF_INET6) {
+                 //    inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)&source_addr)->sin6_addr), addr_str, sizeof(addr_str) - 1);
+                 //}
+		 //if (source_addr.ss_family == AF_INET6) {
+    // Attempt to convert the address to string
+    if (inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)&source_addr)->sin6_addr), addr_str, sizeof(addr_str)) == NULL) {
+        ESP_LOGE(TAG, "inet_ntop failed for IPv6: errno %d", errno);
+    }
+    //else {
+    // Handle IPv4 as a fallback
+    //if (inet_ntop(AF_INET, &(((struct sockaddr_in6 *)&source_addr)->sin_addr), addr_str, sizeof(addr_str)) == NULL) {
+    //    ESP_LOGE(TAG, "inet_ntop failed for IPv4: errno %d", errno);
+   // }
+//}
         	 ESP_LOGI(TAG, "Signaling socket accepted ip address: %s", addr_str);
 		 listen1ready = 1;
 	    }
@@ -358,8 +429,8 @@ static void check_test_button(void *pvParameters)
         	setsockopt(sock2, IPPROTO_TCP, TCP_KEEPIDLE, &keepIdle, sizeof(int));
         	setsockopt(sock2, IPPROTO_TCP, TCP_KEEPINTVL, &keepInterval, sizeof(int));
         	setsockopt(sock2, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
-        	if (source_addr2.ss_family == PF_INET) {
-            	    inet_ntoa_r(((struct sockaddr_in *)&source_addr2)->sin_addr, addr_str2, sizeof(addr_str2) - 1);
+        	if (source_addr2.ss_family == PF_INET6) {
+            	    inet_ntop(AF_INET6,&(((struct sockaddr_in6 *)&source_addr2)->sin6_addr), addr_str2, sizeof(addr_str2) - 1);
         	}
         	ESP_LOGI(TAG, "Signaling socket accepted ip address: %s", addr_str2);
 		listen2ready = 1;
@@ -480,6 +551,7 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
                  (mesh_layer == 2) ? "<layer2>" : "", MAC2STR(id.addr));
         last_layer = mesh_layer;
         mesh_netifs_start(esp_mesh_is_root());
+	esp_netif_create_ip6_linklocal(netif_sta);
     }
     break;
     case MESH_EVENT_PARENT_DISCONNECTED: {
@@ -594,7 +666,7 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-void ip_event_handler(void *arg, esp_event_base_t event_base,
+/*void ip_event_handler(void *arg, esp_event_base_t event_base,
                       int32_t event_id, void *event_data)
 {
     ip_event_got_ip_t *event = (ip_event_got_ip_t *) event_data;
@@ -602,15 +674,15 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     s_current_ip.addr = event->ip_info.ip.addr;
     esp_netif_get_ip_info(netif_sta, &interface_ip_info);
     ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
-    esp_netif_add_ip6_address(netif_sta, bs_ip6.ip, 0);
+//    esp_netif_add_ip6_address(netif_sta, bs_ip6.ip, 0);
 #if !CONFIG_MESH_USE_GLOBAL_DNS_IP
     esp_netif_t *netif = event->esp_netif;
     esp_netif_dns_info_t dns;
     ESP_ERROR_CHECK(esp_netif_get_dns_info(netif, ESP_NETIF_DNS_MAIN, &dns));
     mesh_netif_start_root_ap(esp_mesh_is_root(), dns.ip.u_addr.ip4.addr);
-#endif
+#endif*/
   //  esp_mesh_comm_mqtt_task_start();
-    esp_netif_get_ip_info(netif_ap, &interface_ip_info);
+/*    esp_netif_get_ip_info(netif_ap, &interface_ip_info);
     ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP ADDRESS: "IPSTR"", IP2STR(&interface_ip_info.ip));
     int num_ip6 = esp_netif_get_all_ip6(netif_ap, &interface_ip6_info.ip);
     ESP_LOGI(MESH_TAG, "NUMBER OF AP INTERFACE IP6 ADRESSES: %d", num_ip6);
@@ -620,113 +692,37 @@ void ip_event_handler(void *arg, esp_event_base_t event_base,
     ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
 
 #if TCP_HOST_TYPE == 0
-    xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET, 5, NULL);
+    xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET6, 5, NULL);
 #else
-    xTaskCreate(start_test, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
+    xTaskCreate(start_test, "tcp_client", 4096, (void*)AF_INET6, 5, NULL);
 #endif
-    initialize_ping();
-    ESP_ERROR_CHECK(esp_mesh_ping_task_start());
 #if CONFIG_MESH_NODE_ID == 0
     ESP_ERROR_CHECK(esp_mesh_tcp_task_start());
-#endif
-}
+#endif*/
+//}
 
-/* PING APP */
-
-static void test_on_ping_success(esp_ping_handle_t hdl, void *args)
+void ip6_event_handler(void *arg, esp_event_base_t event_base,
+                      int32_t event_id, void *event_data)
 {
-    // optionally, get callback arguments
-    // const char* str = (const char*) args;
-    // printf("%s\r\n", str); // "foo"
-    uint8_t ttl;
-    uint16_t seqno;
-    uint32_t elapsed_time, recv_len;
-    ip_addr_t target_addr;
-    esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_TTL, &ttl, sizeof(ttl));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_IPADDR, &target_addr, sizeof(target_addr));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_SIZE, &recv_len, sizeof(recv_len));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_TIMEGAP, &elapsed_time, sizeof(elapsed_time));
-    printf("%" PRIu32 "bytes from %s icmp_seq=%d ttl=%d time=%" PRIu32 "ms\n",
-           recv_len, inet_ntoa(target_addr.u_addr.ip4), seqno, ttl, elapsed_time);
-}
-
-static void test_on_ping_timeout(esp_ping_handle_t hdl, void *args)
-{
-    uint16_t seqno;
-    ip_addr_t target_addr;
-    esp_ping_get_profile(hdl, ESP_PING_PROF_SEQNO, &seqno, sizeof(seqno));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_IPADDR, &target_addr, sizeof(target_addr));
-    printf("From %s icmp_seq=%d timeout\n", inet_ntoa(target_addr.u_addr.ip4), seqno);
-}
-
-static void test_on_ping_end(esp_ping_handle_t hdl, void *args)
-{
-    uint32_t transmitted;
-    uint32_t received;
-    uint32_t total_time_ms;
-
-    esp_ping_get_profile(hdl, ESP_PING_PROF_REQUEST, &transmitted, sizeof(transmitted));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_REPLY, &received, sizeof(received));
-    esp_ping_get_profile(hdl, ESP_PING_PROF_DURATION, &total_time_ms, sizeof(total_time_ms));
-    printf("%" PRIu32 "packets transmitted, %" PRIu32 "received, time %" PRIu32 "ms\n", transmitted, received, total_time_ms);
-}
-
-esp_err_t initialize_ping(void)
-{
-    /* convert URL to IP address */
-    ip_addr_t target_addr;
-    esp_ip6_addr_t gw_addr;
-    /*struct addrinfo hint;
-    struct addrinfo *res = NULL;
-    memset(&hint, 0, sizeof(hint));
-    memset(&target_addr, 0, sizeof(target_addr));
-    getaddrinfo("www.espressif.com", NULL, &hint, &res);
-    struct in_addr addr4 = ((struct sockaddr_in *) (res->ai_addr))->sin_addr;
-    inet_addr_to_ip4addr(ip_2_ip4(&target_addr), &addr4);
-    freeaddrinfo(res);*/
-
-#if CONFIG_MESH_NODE_ID == 0
-    esp_netif_str_to_ip4("10.0.1.5", &gw_addr);
+    ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
+    ESP_LOGI(MESH_TAG, "<IP_EVENT__GOT_IP6>IP: "IPV6STR"", IPV62STR(event->ip6_info.ip));
+   // s_current_ip.addr = event->ip6_info.ip.addr;
+    int num_ip6 = esp_netif_get_all_ip6(netif_ap, &interface_ip6_info.ip);
+    ESP_LOGI(MESH_TAG, "NUMBER OF AP INTERFACE IP6 ADRESSES: %d", num_ip6);
+    ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
+    num_ip6 = esp_netif_get_all_ip6(netif_sta, &interface_ip6_info.ip);
+    ESP_LOGI(MESH_TAG, "NUMBER OF STA INTERFACE IP6 ADRESSES: %d", num_ip6);
+    ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
+/*
+#if TCP_HOST_TYPE == 0
+    xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET6, 5, NULL);
 #else
-    esp_netif_str_to_ip6("0020:0000:0f00:0000:0f00:0000:0100:0000", &gw_addr);
+    xTaskCreate(start_test, "tcp_client", 4096, (void*)AF_INET6, 5, NULL);
 #endif
-    memcpy((char *)&target_addr.u_addr.ip6, (char *)&gw_addr, sizeof(gw_addr));
-    target_addr.type = IPADDR_TYPE_V6;
-
-    esp_ping_config_t ping_config = ESP_PING_DEFAULT_CONFIG();
-    ping_config.target_addr = target_addr;          // target IP address
-    //ping_config.count = ESP_PING_COUNT_INFINITE;    // ping in infinite mode, esp_ping_stop can stop it
-    ping_config.ttl = 1;
-
-    /* set callback functions */
-    esp_ping_callbacks_t cbs;
-    cbs.on_ping_success = test_on_ping_success;
-    cbs.on_ping_timeout = test_on_ping_timeout;
-    cbs.on_ping_end = test_on_ping_end;
-    cbs.cb_args = "foo";  // arguments that feeds to all callback functions, can be NULL
-    //cbs.cb_args = eth_event_group;
-
-    //esp_ping_handle_t ping;
-    ESP_ERROR_CHECK(esp_ping_new_session(&ping_config, &cbs, &ping));
-
-    return ESP_OK;
+#if CONFIG_MESH_NODE_ID == 0
+    ESP_ERROR_CHECK(esp_mesh_tcp_task_start());
+#endif*/
 }
-
-esp_err_t esp_mesh_ping_task_start(void)
-{
-    static bool is_ping_task_started = false;
-
-    //s_route_table_lock = xSemaphoreCreateMutex();
-
-    if (!is_ping_task_started) {
-	ESP_LOGI(TAG,"Free heap size before task creation: %lu\n", esp_get_free_heap_size());
-        xTaskCreate(check_button, "check button task", 3072, NULL, 5, NULL);
-        is_ping_task_started = true;
-    }
-    return ESP_OK;
-}
-
 
 esp_err_t esp_mesh_tcp_task_start(void)
 {
@@ -769,13 +765,67 @@ static void tcp_server_task(void *pvParameters)
     uint32_t node2_downlink_traffic = 0;
     uint32_t server_uplink_bytes = 0;
     uint32_t server_uplink2_bytes = 0;
-
+    char por1[10];
+    char por2[10];
 
 
     for (int i = 0; i < 120; i++) {
         msg[i] = 0xF7;  // fill packet with 1500 bytes
     }
 
+    struct addrinfo hints, hints2, *res, *res2;
+
+    // first, load up address structs with getaddrinfo():
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_INET6;  // use IPv4 or IPv6, whichever
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;     // fill in my IP for me
+    memset(&hints2, 0, sizeof hints2);
+    hints2.ai_family = AF_INET6;  // use IPv4 or IPv6, whichever
+    hints2.ai_socktype = SOCK_STREAM;
+    hints2.ai_flags = AI_PASSIVE;     // fill in my IP for me
+
+    sprintf(por1, "%d", SERVER_PORT);
+    sprintf(por2, "%d", SERVER_PORT2);
+
+    getaddrinfo(NULL, por1, &hints, &res);
+    getaddrinfo(NULL, por2, &hints2, &res2);
+
+    // make a socket:
+
+    int listen_sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+    if (listen_sock < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+    int listen_sock2 = socket(res2->ai_family, res2->ai_socktype, res2->ai_protocol);
+    if (listen_sock2 < 0) {
+        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    ESP_LOGI(TAG, "Signaling sockets created");
+    // bind it to the port we passed in to getaddrinfo():
+
+    int err = bind(listen_sock, res->ai_addr, res->ai_addrlen);
+    if (err != 0) {
+        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
+        goto CLEAN_UP;
+    }
+    ESP_LOGI(TAG, "Socket bound, port %d", SERVER_PORT);
+   
+    err = bind(listen_sock2, res2->ai_addr, res2->ai_addrlen);
+    if (err != 0) {
+        ESP_LOGE(TAG, "Socket unable to bind: errno %d", errno);
+        ESP_LOGE(TAG, "IPPROTO: %d", addr_family);
+        goto CLEAN_UP;
+    }
+    ESP_LOGI(TAG, "Socket bound, port %d", SERVER_PORT2);
+/*
     if (addr_family == AF_INET) {
         struct sockaddr_in *dest_addr_ip4 = (struct sockaddr_in *)&dest_addr;
         dest_addr_ip4->sin_addr.s_addr = htonl(INADDR_ANY);
@@ -832,7 +882,7 @@ static void tcp_server_task(void *pvParameters)
         goto CLEAN_UP;
     }
     ESP_LOGI(TAG, "Socket bound, port %d", SERVER_PORT2);
-
+*/
     err = listen(listen_sock, 1);
     if (err != 0) {
         ESP_LOGE(TAG, "Error occurred during listen: errno %d", errno);
@@ -885,7 +935,7 @@ static void tcp_server_task(void *pvParameters)
         	    setsockopt(sock, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
     	//	    setsockopt(sock, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
         	    if (source_addr.ss_family == PF_INET) {
-            	        inet_ntoa_r(((struct sockaddr_in *)&source_addr)->sin_addr, addr_str, sizeof(addr_str) - 1);
+            	        inet6_ntoa_r(((struct sockaddr_in6 *)&source_addr)->sin6_addr, addr_str, sizeof(addr_str) - 1);
         	    }
         	    ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str);
 		    start_messaging1 = 1;
@@ -908,7 +958,7 @@ static void tcp_server_task(void *pvParameters)
        		     setsockopt(sock2, IPPROTO_TCP, TCP_KEEPCNT, &keepCount, sizeof(int));
     	//	     setsockopt(sock2, IPPROTO_TCP, TCP_MSS, &mss, sizeof(mss));
      	 	     if (source_addr2.ss_family == PF_INET) {
-            		inet_ntoa_r(((struct sockaddr_in *)&source_addr2)->sin_addr, addr_str2, sizeof(addr_str2) - 1);
+            		inet6_ntoa_r(((struct sockaddr_in6 *)&source_addr2)->sin6_addr, addr_str2, sizeof(addr_str2) - 1);
         	     }
         	     ESP_LOGI(TAG, "Socket accepted ip address: %s", addr_str2);
 		     start_messaging2 = 1;
@@ -1061,7 +1111,7 @@ CLEAN_UP:
 
 static void tcp_client_task(void *pvParameters)
 {
-    char rx_buffer[130];
+/*    char rx_buffer[130];
     int buffersize = 200;
     char host_ip[] = "10.0.0.1";   //tcp server mesh addr
     int addr_family = 0;
@@ -1212,7 +1262,7 @@ static void tcp_client_task(void *pvParameters)
     //shutdown(sock, 0);
     //close(sock);
     test_time_max = 0;
-    vTaskDelete(NULL);
+    vTaskDelete(NULL);*/
 }
 
 
@@ -1220,22 +1270,22 @@ static void start_test(void *pvParameters)
 {
 
     char rx_buffer[2];
-    char host_ip[] = "10.0.0.1";   //tcp server mesh addr
+    char host_ip[] = "20fe:0000:0000:0000:0000:0000:0000:0001";   //tcp server mesh addr
     int addr_family = 0;
     int ip_protocol = 0;
 
     while (1) {
-#if defined(CONFIG_EXAMPLE_IPV4)
-        struct sockaddr_in dest_addr;
-        inet_pton(AF_INET, host_ip, &dest_addr.sin_addr);
-        dest_addr.sin_family = AF_INET;
-        dest_addr.sin_port = htons(SIGNALING_PORT);
-        addr_family = AF_INET;
+
+        struct sockaddr_in6 dest_addr;
+        inet_pton(AF_INET6, host_ip, &dest_addr.sin6_addr);
+	if (inet_pton(AF_INET6, host_ip, &dest_addr.sin6_addr) <= 0) {
+        	ESP_LOGE(TAG, "inet_pton failed");
+	};
+        dest_addr.sin6_family = AF_INET6;
+        dest_addr.sin6_port = htons(SIGNALING_PORT);
+        addr_family = AF_INET6;
         ip_protocol = IPPROTO_IP;
-#elif defined(CONFIG_EXAMPLE_SOCKET_IP_INPUT_STDIN)
-        struct sockaddr_storage dest_addr = { 0 };
-        ESP_ERROR_CHECK(get_addr_from_stdin(SIGNALING_PORT, SOCK_STREAM, &ip_protocol, &addr_family, &dest_addr));
-#endif
+
         int sock =  socket(addr_family, SOCK_STREAM, ip_protocol);
         if (sock < 0) {
             ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
@@ -1263,7 +1313,7 @@ static void start_test(void *pvParameters)
                 ESP_LOGI(TAG, "Received %d bytes from %s:", len, host_ip);
 		if (rx_buffer[0] == 0x10){	
                     ESP_LOGI(TAG, "Initialize test");
-    		    xTaskCreate(tcp_client_task, "tcp_client", 4096, (void*)AF_INET, 5, NULL);
+    		    xTaskCreate(tcp_client_task, "tcp_client", 4096, (void*)AF_INET6, 5, NULL);
 		    break;
 		}
 		else{
@@ -1293,7 +1343,8 @@ void app_main(void)
     /*  wifi initialization */
     wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&config));
-    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_handler, NULL));
+//    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &ip_event_handler, NULL));
+    ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_GOT_IP6, &ip6_event_handler, NULL));
     ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_FLASH));
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
@@ -1336,4 +1387,5 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_mesh_start());
     ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%" PRId32 ", %s",  esp_get_free_heap_size(),
              esp_mesh_is_root_fixed() ? "root fixed" : "root not fixed");
+//    mesh_netifs_start(esp_mesh_is_root());
 }

@@ -13,10 +13,10 @@
 #include "esp_mesh.h"
 #include "esp_mac.h"
 #include "lwip/lwip_napt.h"
-#include "dhcpserver/dhcpserver.h"
+//nclude "dhcpserver/dhcpserver.h"
 #include "esp_wifi_netif.h"
 #include "mesh_netif.h"
-
+#include "lwip/dhcp6.h"
 /*******************************************************
  *                Macros
  *******************************************************/
@@ -47,15 +47,18 @@ const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
 };
 const esp_netif_ip6_info_t ap_interface_ip6 = {
-	.ip = { .addr = {0x2000, 0xF, 0xF, 0x1},
-		.zone = 0,
-	}
+    .ip = {
+        .addr = { 0x0000fe20, 0x00000000, 0x00000000, 0x01000000 },
+        .zone = 0,
+    }
 };
 const esp_netif_ip6_info_t sta_interface_ip6 = {
-	.ip = { .addr = {0x200E, 0xF, 0xF, 0x1},
-		.zone = 0,
-	}
+    .ip = {
+        .addr = { 0x0000fe20, 0xF0000000, 0xF0000000, 0x01000000 },
+        .zone = 0,
+    }
 };
+
 
 #elif CONFIG_MESH_NODE_ID == 1
 const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
@@ -64,7 +67,7 @@ const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
 };
 const esp_netif_ip6_info_t sta_interface_ip6 = {
-	.ip = { .addr = {0x2000, 0xF, 0xF, 0x2},
+	.ip = { .addr = {0x20fe0000, 0x00000000, 0x00000000, 0x00000002},
 		.zone = 0,
 	}
 };
@@ -74,7 +77,7 @@ const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
         .netmask = { .addr = ESP_IP4TOADDR( 255, 255, 0, 0) },
 };
 const esp_netif_ip6_info_t ap_interface_ip6 = {
-	.ip = { .addr = {0x2000, 0xF, 0xF, 0x11},
+	.ip = { .addr = {0x20fe0000, 0x00000000, 0x00000000, 0x00000003},
 		.zone = 0,
 	}
 };
@@ -339,8 +342,8 @@ static esp_err_t start_mesh_link_ap(void)
     uint8_t mac[MAC_ADDR_LEN];
     esp_wifi_get_mac(WIFI_IF_AP, mac);
     esp_netif_set_mac(netif_ap, mac);
-    esp_netif_dhcps_stop(netif_ap);
-    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+//    esp_netif_dhcps_stop(netif_ap);
+//    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
     esp_netif_action_start(netif_ap, NULL, 0, NULL);
     return ESP_OK;
 }
@@ -359,6 +362,7 @@ static esp_err_t start_wifi_link_sta(void)
         return ESP_FAIL;
     }
     esp_netif_set_mac(netif_sta, mac);
+    esp_netif_create_ip6_linklocal(netif_sta);
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     return ESP_OK;
 }
@@ -371,12 +375,20 @@ static esp_err_t start_mesh_link_sta(void)
     uint8_t mac[MAC_ADDR_LEN];
     esp_wifi_get_mac(WIFI_IF_STA, mac);
     esp_netif_set_mac(netif_sta, mac);
-    #if CONFIG_MESH_NODE_ID != 0
-    esp_netif_dhcpc_stop(netif_sta);
-    esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
-    #endif
+   // #if CONFIG_MESH_NODE_ID != 0
+  //  esp_netif_dhcpc_stop(netif_sta);
+//    esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
+  //  #else
+  //  esp_netif_dhcpc_stop(netif_sta);
+   // netif_sta->ip6_autoconfig_enabled=1;
+   // esp_netif_t* netif=NULL;
+  //  netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+  //  struct netif *lwip_netif = (struct netif *)netif_sta->esp_netif;
+   // ESP_ERROR_CHECK(dhcp6_enable_stateless(netif));
+   // #endif
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     esp_netif_action_connected(netif_sta, NULL, 0, NULL);
+    esp_netif_add_ip6_address(netif_sta,sta_interface_ip6.ip,0);
     return ESP_OK;
 }
 
@@ -408,7 +420,7 @@ static esp_netif_t* create_mesh_link_ap(void)
 static void destory_mesh_link_ap(void)
 {
     if (netif_ap) {
-        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif_ap));
+//        ESP_ERROR_CHECK_WITHOUT_ABORT(esp_netif_dhcps_stop(netif_ap));
         esp_netif_action_disconnected(netif_ap, NULL, 0, NULL);
         mesh_delete_if_driver(esp_netif_get_io_driver(netif_ap));
         esp_netif_destroy(netif_ap);
@@ -455,8 +467,8 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
         }
         esp_netif_attach(netif_ap, driver);
         //set_dhcps_dns(netif_ap, addr);
-	esp_netif_dhcps_stop(netif_ap);
-	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+//	esp_netif_dhcps_stop(netif_ap);
+//	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
         start_mesh_link_ap();
 	esp_netif_add_ip6_address(netif_ap, ap_interface_ip6.ip, 0);
     }
