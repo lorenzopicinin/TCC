@@ -26,6 +26,10 @@
 #define DNS_IP_ADDR CONFIG_MESH_GLOBAL_DNS_IP
 #endif
 
+#ifndef ESP_NETIF_FLAG_IPV6
+#define ESP_NETIF_FLAG_IPV6 (1 << 2)  // enable IPv6 support manually
+#endif
+
 /*******************************************************
  *                Type Definitions
  *******************************************************/
@@ -48,17 +52,10 @@ const esp_netif_ip_info_t ap_interface_ip = {        // mesh subnet IP info
 };
 const esp_netif_ip6_info_t ap_interface_ip6 = {
     .ip = {
-        .addr = { 0x0000fe20, 0x00000000, 0x00000000, 0x01000000 },
+        .addr = { 0x00000120, 0x00000000, 0x00000000, 0x01000000 },
         .zone = 0,
     }
 };
-const esp_netif_ip6_info_t sta_interface_ip6 = {
-    .ip = {
-        .addr = { 0x0000fe20, 0xF0000000, 0xF0000000, 0x01000000 },
-        .zone = 0,
-    }
-};
-
 
 #elif CONFIG_MESH_NODE_ID == 1
 const esp_netif_ip_info_t sta_interface_ip = {        // mesh subnet IP info
@@ -144,7 +141,7 @@ static void receive_task(void *arg)
         }
         if (esp_mesh_is_root()) {
             if (data.proto == MESH_PROTO_AP) {
-                ESP_LOGD(TAG, "Root received: from: " MACSTR " to " MACSTR " size: %d",
+                ESP_LOGI(TAG, "Root received: from: " MACSTR " to " MACSTR " size: %d",
                          MAC2STR((uint8_t*)data.data) ,MAC2STR((uint8_t*)(data.data+6)), data.size);
                 if (netif_ap) {
                     // actual receive to TCP/IP stack
@@ -155,9 +152,9 @@ static void receive_task(void *arg)
             }
         } else {
             if (data.proto == MESH_PROTO_AP) {
-                ESP_LOGD(TAG, "Node AP should never receive data from mesh");
+                ESP_LOGI(TAG, "Node AP should never receive data from mesh");
             } else if (data.proto == MESH_PROTO_STA) {
-                ESP_LOGD(TAG, "Node received: from: " MACSTR " to " MACSTR " size: %d",
+                ESP_LOGI(TAG, "Node received: from: " MACSTR " to " MACSTR " size: %d",
                          MAC2STR((uint8_t*)data.data) ,MAC2STR((uint8_t*)(data.data+6)), data.size);
                 if (netif_sta) {
                     // actual receive to TCP/IP stack
@@ -187,14 +184,14 @@ static esp_err_t mesh_netif_transmit_from_root_ap(void *h, void *buffer, size_t 
     mesh_netif_driver_t mesh_driver = h;
     mesh_addr_t dest_addr;
     mesh_data_t data;
-    ESP_LOGD(TAG, "Sending to node: " MACSTR ", size: %d" ,MAC2STR((uint8_t*)buffer), len);
+    ESP_LOGI(TAG, "Sending to node: " MACSTR ", size: %d" ,MAC2STR((uint8_t*)buffer), len);
     memcpy(dest_addr.addr, buffer, MAC_ADDR_LEN);
     data.data = buffer;
     data.size = len;
     data.proto = MESH_PROTO_STA; // sending from root AP -> Node's STA
     data.tos = MESH_TOS_P2P;
     if (MAC_ADDR_EQUAL(dest_addr.addr, eth_broadcast)) {
-        ESP_LOGD(TAG, "Broadcasting!");
+        ESP_LOGI(TAG, "Broadcasting!");
         esp_mesh_get_routing_table((mesh_addr_t *) &s_route_table,
                                    CONFIG_MESH_ROUTE_TABLE_SIZE * 6, &route_table_size);
         for (int i = 0; i < route_table_size; i++) {
@@ -202,7 +199,7 @@ static esp_err_t mesh_netif_transmit_from_root_ap(void *h, void *buffer, size_t 
                 ESP_LOGD(TAG, "That was me, skipping!");
                 continue;
             }
-            ESP_LOGD(TAG, "Broadcast: Sending to [%d] " MACSTR, i, MAC2STR(s_route_table[i].addr));
+            ESP_LOGI(TAG, "Broadcast: Sending to [%d] " MACSTR, i, MAC2STR(s_route_table[i].addr));
             esp_err_t err = esp_mesh_send(&s_route_table[i], &data, MESH_DATA_P2P, NULL, 0);
             if (ESP_OK != err) {
                 ESP_LOGE(TAG, "Send with err code %d %s", err, esp_err_to_name(err));
@@ -233,7 +230,7 @@ static esp_err_t mesh_netif_transmit_from_node_sta(void *h, void *buffer, size_t
     data.tos = MESH_TOS_P2P;
     esp_err_t err = esp_mesh_send(NULL, &data, MESH_DATA_TODS, NULL, 0);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Send with err code %d %s", err, esp_err_to_name(err));
+        ESP_LOGE(TAG, "Send from root STA to root AP with err code %d %s", err, esp_err_to_name(err));
     }
     return err;
 }
@@ -253,7 +250,7 @@ static esp_err_t mesh_driver_start_root_ap(esp_netif_t * esp_netif, void * args)
             .handle =  driver,
             .transmit = mesh_netif_transmit_from_root_ap,
             .transmit_wrap = mesh_netif_transmit_from_root_ap_wrap,
-            .driver_free_rx_buffer = mesh_free
+            .driver_free_rx_buffer = mesh_free,
     };
 
     return esp_netif_set_driver_config(esp_netif, &driver_ifconfig);
@@ -339,12 +336,16 @@ esp_err_t mesh_netifs_init(mesh_raw_recv_cb_t *cb)
  */
 static esp_err_t start_mesh_link_ap(void)
 {
+    //ESP_LOGE(TAG,"Start mesh link ap called!");
     uint8_t mac[MAC_ADDR_LEN];
+    //uint8_t custom_mac[6] = {0x1a, 0x00, 0x00, 0x00, 0x00, 0x01};
     esp_wifi_get_mac(WIFI_IF_AP, mac);
     esp_netif_set_mac(netif_ap, mac);
 //    esp_netif_dhcps_stop(netif_ap);
 //    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+//    esp_netif_create_ip6_linklocal(netif_ap);
     esp_netif_action_start(netif_ap, NULL, 0, NULL);
+//    esp_netif_add_ip6_address(netif_ap, ap_interface_ip6.ip, 0);
     return ESP_OK;
 }
 
@@ -362,7 +363,6 @@ static esp_err_t start_wifi_link_sta(void)
         return ESP_FAIL;
     }
     esp_netif_set_mac(netif_sta, mac);
-    esp_netif_create_ip6_linklocal(netif_sta);
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     return ESP_OK;
 }
@@ -375,20 +375,8 @@ static esp_err_t start_mesh_link_sta(void)
     uint8_t mac[MAC_ADDR_LEN];
     esp_wifi_get_mac(WIFI_IF_STA, mac);
     esp_netif_set_mac(netif_sta, mac);
-   // #if CONFIG_MESH_NODE_ID != 0
-  //  esp_netif_dhcpc_stop(netif_sta);
-//    esp_netif_set_ip_info(netif_sta,&sta_interface_ip);
-  //  #else
-  //  esp_netif_dhcpc_stop(netif_sta);
-   // netif_sta->ip6_autoconfig_enabled=1;
-   // esp_netif_t* netif=NULL;
-  //  netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-  //  struct netif *lwip_netif = (struct netif *)netif_sta->esp_netif;
-   // ESP_ERROR_CHECK(dhcp6_enable_stateless(netif));
-   // #endif
     esp_netif_action_start(netif_sta, NULL, 0, NULL);
     esp_netif_action_connected(netif_sta, NULL, 0, NULL);
-    esp_netif_add_ip6_address(netif_sta,sta_interface_ip6.ip,0);
     return ESP_OK;
 }
 
@@ -397,11 +385,12 @@ static esp_err_t start_mesh_link_sta(void)
  *
  * @return Pointer to esp-netif instance
  */
-static esp_netif_t* create_mesh_link_ap(void)
+/*static esp_netif_t* create_mesh_link_ap(void)
 {
+  //  ESP_LOGE(TAG,"Create mesh link ap called!");
     esp_netif_inherent_config_t base_cfg = ESP_NETIF_INHERENT_DEFAULT_WIFI_AP();
     base_cfg.if_desc = "mesh_link_ap";
-    base_cfg.ip_info = &ap_interface_ip;
+   // base_cfg.ip_info = &ap_interface_ip;
 
     esp_netif_config_t cfg = {
             .base = &base_cfg,
@@ -410,6 +399,22 @@ static esp_netif_t* create_mesh_link_ap(void)
     esp_netif_t * netif = esp_netif_new(&cfg);
 //    esp_netif_dhcps_stop(netif_ap);
 //    esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+    assert(netif);
+    return netif;
+}*/
+static esp_netif_t* create_mesh_link_ap(void)
+{
+    esp_netif_inherent_config_t base_cfg = ESP_NETIF_INHERENT_DEFAULT_WIFI_AP();
+    base_cfg.if_desc = "mesh_link_ap";
+    base_cfg.flags |= ESP_NETIF_FLAG_IPV6;  // <-- This is the missing piece
+
+    esp_netif_config_t cfg = {
+        .base = &base_cfg,
+        .driver = NULL,
+        .stack = ESP_NETIF_NETSTACK_DEFAULT_WIFI_AP
+    };
+
+    esp_netif_t *netif = esp_netif_new(&cfg);
     assert(netif);
     return netif;
 }
@@ -457,27 +462,59 @@ static esp_netif_t* create_mesh_link_sta(void)
 
 esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t addr)
 {
+    ESP_LOGI(TAG, "Start root AP called!");
+
     if (is_root) {
+        // Destroy previous AP netif (if any)
         destory_mesh_link_ap();
+
+        // Create new custom AP netif
         netif_ap = create_mesh_link_ap();
+        if (!netif_ap) {
+            ESP_LOGE(TAG, "Failed to create AP netif");
+            return ESP_FAIL;
+        }
+
+        // Create and attach driver
         mesh_netif_driver_t driver = mesh_create_if_driver(true, true);
-        if (driver == NULL) {
+        if (!driver) {
             ESP_LOGE(TAG, "Failed to create wifi interface handle");
             return ESP_FAIL;
         }
-        esp_netif_attach(netif_ap, driver);
-        //set_dhcps_dns(netif_ap, addr);
-//	esp_netif_dhcps_stop(netif_ap);
-//	esp_netif_set_ip_info(netif_ap,&ap_interface_ip);
+
+        esp_err_t attach_err = esp_netif_attach(netif_ap, driver);
+        if (attach_err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to attach driver: %s", esp_err_to_name(attach_err));
+            return attach_err;
+        }
+
+        // Attempt to create IPv6 link-local address
+    /*    esp_err_t err = esp_netif_create_ip6_linklocal(netif_ap);
+        if (err == ESP_ERR_INVALID_STATE) {
+            ESP_LOGW(TAG, "Link-local IPv6 already exists on netif_ap");
+        } else if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Failed to create link-local IPv6: %s", esp_err_to_name(err));
+            return err;
+        }
+*/
+        // Optional: DHCP server, static IP setup here
+        // set_dhcps_dns(netif_ap, addr);
+        // esp_netif_dhcps_stop(netif_ap);
+        // esp_netif_set_ip_info(netif_ap, &ap_interface_ip);
+
+        // Start the AP (after all netif setup)
         start_mesh_link_ap();
-	esp_netif_add_ip6_address(netif_ap, ap_interface_ip6.ip, 0);
     }
+
     return ESP_OK;
 }
 
+
 esp_err_t mesh_netifs_start(bool is_root)
 {
+    ESP_LOGE(TAG,"Netifs start called!");
     if (is_root) {
+//	ESP_LOGE(TAG,"Is root identified!");
         // ROOT: need both sta should use standard wifi, AP mesh link netif
 
         // Root: Station
@@ -495,10 +532,12 @@ esp_err_t mesh_netifs_start(bool is_root)
         // Root: AP is initialized only if GLOBAL DNS configured
         // (otherwise have to wait until the actual DNS record received from the router)
 #if CONFIG_MESH_USE_GLOBAL_DNS_IP
+         destory_mesh_link_ap();
          mesh_netif_start_root_ap(true, htonl(DNS_IP_ADDR));
 #endif
 
     } else {
+//	ESP_LOGE(TAG,"Is not root identified!");
         // NODE: create only STA in form of mesh link
         if (netif_sta && strcmp(esp_netif_get_desc(netif_sta), "mesh_link_sta") == 0) {
             ESP_LOGI(TAG, "Already mesh link station, no need to do anything");
@@ -559,4 +598,17 @@ uint8_t* mesh_netif_get_station_mac(void)
 {
     mesh_netif_driver_t mesh =  esp_netif_get_io_driver(netif_sta);
     return mesh->sta_mac_addr;
+}
+
+esp_err_t create_ap_ip6(void)
+{
+    if(esp_netif_is_netif_up(netif_ap)){
+	ESP_LOGI(TAG,"Netif AP is up!");
+	esp_netif_create_ip6_linklocal(netif_ap);
+        esp_netif_add_ip6_address(netif_ap, ap_interface_ip6.ip, 0);
+    }
+    else{
+	ESP_LOGI(TAG, "Netif AP is down!");
+    }
+    return ESP_OK;
 }

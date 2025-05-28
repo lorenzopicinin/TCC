@@ -509,6 +509,12 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(MESH_TAG, "<MESH_EVENT_CHILD_CONNECTED>aid:%d, "MACSTR"",
                  child_connected->aid,
                  MAC2STR(child_connected->mac));
+    //    esp_err_t err = esp_netif_create_ip6_linklocal(netif_ap);
+    //    if (err == ESP_ERR_INVALID_STATE) {
+    //        ESP_LOGW(TAG, "Link-local IPv6 already exists on netif_ap");
+    //    } else if (err != ESP_OK) {
+    //        ESP_LOGE(TAG, "Failed to create link-local IPv6: %s", esp_err_to_name(err));
+    //    }
     }
     break;
     case MESH_EVENT_CHILD_DISCONNECTED: {
@@ -704,16 +710,16 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
 void ip6_event_handler(void *arg, esp_event_base_t event_base,
                       int32_t event_id, void *event_data)
 {
+    //char** hostname = NULL;
     ip_event_got_ip6_t *event = (ip_event_got_ip6_t *) event_data;
-    ESP_LOGI(MESH_TAG, "<IP_EVENT__GOT_IP6>IP: "IPV6STR"", IPV62STR(event->ip6_info.ip));
-   // s_current_ip.addr = event->ip6_info.ip.addr;
-    int num_ip6 = esp_netif_get_all_ip6(netif_ap, &interface_ip6_info.ip);
-    ESP_LOGI(MESH_TAG, "NUMBER OF AP INTERFACE IP6 ADRESSES: %d", num_ip6);
-    ESP_LOGI(MESH_TAG, "NODE WIFI AP INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
-    num_ip6 = esp_netif_get_all_ip6(netif_sta, &interface_ip6_info.ip);
-    ESP_LOGI(MESH_TAG, "NUMBER OF STA INTERFACE IP6 ADRESSES: %d", num_ip6);
-    ESP_LOGI(MESH_TAG, "NODE WIFI STA INTERFACE IP6 ADDRESS: "IPV6STR"", IPV62STR(interface_ip6_info.ip));
-/*
+    //esp_netif_get_hostname(event->esp_netif, hostname);
+    ESP_LOGI(MESH_TAG, "<IP_EVENT_GOT_IP6>IP: "IPV6STR"", IPV62STR(event->ip6_info.ip));
+    int num_ip6_ap = esp_netif_get_all_ip6(netif_ap, &interface_ip6_info.ip);
+    ESP_LOGI(MESH_TAG, "NUMBER OF AP INTERFACE IP6 ADRESSES: %d", num_ip6_ap);
+    int num_ip6_sta = esp_netif_get_all_ip6(netif_sta, &interface_ip6_info.ip);
+    ESP_LOGI(MESH_TAG, "NUMBER OF STA INTERFACE IP6 ADRESSES: %d", num_ip6_sta);
+    //if (num_ip6_sta >= 2 && num_ip6_ap == 0){
+    //    create_ap_ip6();
 #if TCP_HOST_TYPE == 0
     xTaskCreate(tcp_server_task, "tcp_server", 12288, (void*)AF_INET6, 5, NULL);
 #else
@@ -721,7 +727,8 @@ void ip6_event_handler(void *arg, esp_event_base_t event_base,
 #endif
 #if CONFIG_MESH_NODE_ID == 0
     ESP_ERROR_CHECK(esp_mesh_tcp_task_start());
-#endif*/
+#endif
+    //}
 }
 
 esp_err_t esp_mesh_tcp_task_start(void)
@@ -1270,7 +1277,7 @@ static void start_test(void *pvParameters)
 {
 
     char rx_buffer[2];
-    char host_ip[] = "20fe:0000:0000:0000:0000:0000:0000:0001";   //tcp server mesh addr
+    char host_ip[] = "2001:0000:0000:0000:0000:0000:0000:0001";//"2804:014c:8781:872d:a2b7:65ff:fe47:93b8";   //tcp server mesh addr
     int addr_family = 0;
     int ip_protocol = 0;
 
@@ -1293,7 +1300,7 @@ static void start_test(void *pvParameters)
         }
         ESP_LOGI(TAG, "Signaling Socket created, connecting to %s:%d", host_ip, SIGNALING_PORT);
 
-        int err = connect(sock, (struct sockaddr *)&dest_addr, sizeof(dest_addr));
+        int err = connect(sock, (struct sockaddr_in6 *)&dest_addr, sizeof(dest_addr));
         if (err != 0) {
             ESP_LOGE(TAG, "Socket unable to connect: errno %d", errno);
             break;
@@ -1387,5 +1394,4 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_mesh_start());
     ESP_LOGI(MESH_TAG, "mesh starts successfully, heap:%" PRId32 ", %s",  esp_get_free_heap_size(),
              esp_mesh_is_root_fixed() ? "root fixed" : "root not fixed");
-//    mesh_netifs_start(esp_mesh_is_root());
 }
