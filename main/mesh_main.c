@@ -73,8 +73,8 @@ static const char *TAG = "tcp_connection";
 /*******************************************************
  *                Variable Definitions
  *******************************************************/
-static char payload[1296];
-static char msg[120];
+static char payload[120];
+static char msg[1400];
 static bool is_running = true;
 static mesh_addr_t mesh_parent_addr;
 static int mesh_layer = -1;
@@ -751,8 +751,8 @@ static void tcp_server_task(void *pvParameters)
 
 
 
-    for (int i = 0; i < 120; i++) {
-        msg[i] = 0xF7;  // fill packet with 1500 bytes
+    for (int i = 0; i < 1400; i++) {
+        msg[i] = 0xF7;  // fill packet with 1400 bytes
     }
 
     if (addr_family == AF_INET) {
@@ -1051,8 +1051,8 @@ static void tcp_client_task(void *pvParameters)
     bool info_sent = 0;
     payload[0] = 0x00;  //to make sure the first byte is not 0xFF
 
-    for (int i = 1; i < 1296; i++) {
-        payload[i] = 0xF5;  // fill packet with 1500 bytes
+    for (int i = 1; i < 120; i++) {
+        payload[i] = 0xF5;  // fill packet with 120 bytes
     }
 
     initialise_timer();
@@ -1131,7 +1131,7 @@ static void tcp_client_task(void *pvParameters)
 		    break;
 	    }
 	    else {
-	   	vTaskDelay(2.4 / portTICK_PERIOD_MS); //think time TCP
+	   	vTaskDelay(1000 / portTICK_PERIOD_MS); //think time TCP
 	    }
         }
 
