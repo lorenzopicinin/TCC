@@ -90,6 +90,7 @@ static gptimer_handle_t gptimer = NULL;
 static wifi_interface_t wifi_sta;
 static wifi_interface_t wifi_ap;
 static wifi_bandwidth_t wifi_bw;
+static int rssi;
 /*******************************************************
  *                Function Declarations
  *******************************************************/
@@ -472,6 +473,8 @@ void mesh_event_handler(void *arg, esp_event_base_t event_base,
         mesh_netifs_start(esp_mesh_is_root());
 	esp_wifi_get_bandwidth(wifi_sta,&wifi_bw);
 	ESP_LOGI(MESH_TAG,"The Bandwidth used in the STA interface is: %d",wifi_bw);
+	esp_wifi_sta_get_rssi(&rssi);
+	ESP_LOGI(MESH_TAG, "The RSSI from the parent node is: %d",rssi);
     }
     break;
     case MESH_EVENT_PARENT_DISCONNECTED: {

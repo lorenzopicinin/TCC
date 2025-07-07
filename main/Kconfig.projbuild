@@ -126,6 +126,13 @@ menu "Example Configuration"
         help
             Local port the example server will listen on.
 
+    config EXAMPLE_SIG_PORT
+        int "Signaling Port"
+        range 0 65535
+        default 3339
+        help
+            Local port the signaling will be exchanged.
+
     config EXAMPLE_KEEPALIVE_IDLE
         int "TCP keep-alive idle time(s)"
         default 5

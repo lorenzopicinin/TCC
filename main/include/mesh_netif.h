@@ -78,3 +78,8 @@ esp_err_t mesh_netif_start_root_ap(bool is_root, uint32_t dns_addr);
  * @return Pointer to MAC address
  */
 uint8_t* mesh_netif_get_station_mac(void);
+
+/*
+ * used to create ip6 linklocal address in netif_ap interface
+ */
+esp_err_t create_ap_ip6(void);
